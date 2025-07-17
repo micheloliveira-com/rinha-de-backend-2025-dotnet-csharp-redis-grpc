@@ -1,0 +1,6 @@
+services:
+  backend:
+    image: ${DOCKER_REGISTRY-}backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
