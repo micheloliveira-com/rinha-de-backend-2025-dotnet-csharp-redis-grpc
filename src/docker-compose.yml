@@ -10,9 +10,14 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__default=http://payment-processor-default:8080
       - ConnectionStrings__fallback=http://payment-processor-fallback:8080
-      - ConnectionStrings__postgres=Host=backend-db;Port=5432;Database=backend-db;Username=postgres;Password=postgres;
+      - ConnectionStrings__postgres=Host=backend-db;Port=5432;Database=backend-db;Username=postgres;Password=postgres;Pooling=true;Maximum Pool Size=200;Multiplexing=true;Timeout=15;Command Timeout=15;Cancellation Timeout=-1;No Reset On Close=true;Max Auto Prepare=20;Auto Prepare Min Usages=1;
     ports:
       - "8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "80MB"
   backend-2:
     image: ${DOCKER_REGISTRY-}backend
     container_name: backend-2
@@ -24,11 +29,17 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__default=http://payment-processor-default:8080
       - ConnectionStrings__fallback=http://payment-processor-fallback:8080
-      - ConnectionStrings__postgres=Host=backend-db;Port=5432;Database=backend-db;Username=postgres;Password=postgres;
+      - ConnectionStrings__postgres=Host=backend-db;Port=5432;Database=backend-db;Username=postgres;Password=postgres;Pooling=true;Maximum Pool Size=200;Multiplexing=true;Timeout=15;Command Timeout=15;Cancellation Timeout=-1;No Reset On Close=true;Max Auto Prepare=20;Auto Prepare Min Usages=1;
     ports:
       - "8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "80MB"
   backend-db:
     image: postgres:17-alpine
+    command: 'postgres -c max_connections=400 -c synchronous_commit=off -c fsync=off -c full_page_writes=off'
     networks:
       - backend
     volumes:
@@ -38,7 +49,12 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_DB=backend-db
     ports:
-      - "5432:5432"    
+      - "5432:5432" 
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: "140MB"   
   load-balancer:
     image: nginx:alpine
     volumes:
@@ -47,6 +63,11 @@ services:
       - "9999:8080"
     networks:
       - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: "50MB"
 networks:
   backend:
     driver: bridge
