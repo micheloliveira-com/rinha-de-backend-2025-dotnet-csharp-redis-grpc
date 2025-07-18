@@ -17,7 +17,7 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: "100MB"
+          memory: "80MB"
   backend-2:
     image: ${DOCKER_REGISTRY-}backend
     container_name: backend-2
@@ -36,7 +36,7 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: "100MB"
+          memory: "80MB"
   backend-db:
     image: postgres:17-alpine
     command: 'postgres -c max_connections=400 -c synchronous_commit=off -c fsync=off -c full_page_writes=off'
@@ -54,7 +54,7 @@ services:
       resources:
         limits:
           cpus: "0.3"
-          memory: "100MB"   
+          memory: "140MB"   
   load-balancer:
     image: nginx:alpine
     volumes:
