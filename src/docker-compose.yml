@@ -63,6 +63,10 @@ services:
       - "9999:8080"
     networks:
       - backend
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     deploy:
       resources:
         limits:
