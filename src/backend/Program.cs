@@ -2,9 +2,22 @@ using Dapper;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
+using Polly;
+using Polly.Extensions.Http;
 using System.Data;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 [module: DapperAot]
+
+static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+{
+    return HttpPolicyExtensions
+        .HandleTransientHttpError()
+        .WaitAndRetryAsync(
+            3,
+            retryAttempt => TimeSpan.FromMilliseconds(500 * Math.Pow(2, retryAttempt - 1))
+        );
+}
 
 
 const string defaultProcessorName = "default";
@@ -18,10 +31,12 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 builder.Services.AddHttpClient(defaultProcessorName, o =>
-    o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(defaultProcessorName)!));
+    o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(defaultProcessorName)!))
+        .AddPolicyHandler(GetRetryPolicy());
 
 builder.Services.AddHttpClient(fallbackProcessorName, o =>
-    o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(fallbackProcessorName)!));
+    o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(fallbackProcessorName)!))
+        .AddPolicyHandler(GetRetryPolicy());
 
 builder.Services.AddTransient<IDbConnection>(sp =>
     new NpgsqlConnection(builder.Configuration.GetConnectionString("postgres")));
@@ -37,9 +52,21 @@ var app = builder.Build();
 var apiGroup = app.MapGroup("/");
 apiGroup.MapGet("/", () => Results.Ok());
 
+var limiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
+{
+    TokenLimit = 100,
+    TokensPerPeriod = 100,
+    ReplenishmentPeriod = TimeSpan.FromSeconds(1),
+    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+    QueueLimit = int.MaxValue
+});
+
 apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, IDbConnection conn, IHttpClientFactory factory) =>
 {
+    using var lease = await limiter.AcquireAsync(1);
+    
     var httpDefault = factory.CreateClient(defaultProcessorName);
+    var httpFallback = factory.CreateClient(fallbackProcessorName);
 
     var requestedAt = DateTimeOffset.UtcNow;
     try
@@ -55,7 +82,17 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, IDbConnec
     }
     catch
     {
-        return Results.Conflict();
+        var response = await httpFallback.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
+        (
+            request.Amount,
+            requestedAt,
+            request.CorrelationId
+        ), JsonContext.Default.ProcessorPaymentRequest);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return Results.Conflict();
+        }
     }
 
     var sql = @"
