@@ -116,10 +116,9 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
         {
             return;
         }
-        var sql = @"
+        const string sql = @"
             INSERT INTO payments (correlation_id, processor, amount, requested_at)
-            VALUES (@CorrelationId, @Processor, @Amount, @RequestedAt)
-            ON CONFLICT (correlation_id) DO NOTHING;
+            VALUES (@CorrelationId, @Processor, @Amount, @RequestedAt);
         ";
 
         var parameters = new PaymentInsertParameters(
@@ -146,11 +145,10 @@ apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [F
           AND (@to IS NULL OR requested_at <= @to)
         GROUP BY processor;
     ";
+    List<PaymentSummaryResult> result = [.. await conn.QueryAsync<PaymentSummaryResult>(sql, new { from, to })];
 
-    var rows = (await conn.QueryAsync<PaymentSummaryResult>(sql, new { from, to })).ToList();
-
-    var defaultResult = rows.FirstOrDefault(r => r.Processor == defaultProcessorName) ?? new PaymentSummaryResult(defaultProcessorName, 0, 0);
-    var fallbackResult = rows.FirstOrDefault(r => r.Processor == fallbackProcessorName) ?? new PaymentSummaryResult(fallbackProcessorName, 0, 0);
+    var defaultResult = result?.FirstOrDefault(r => r.Processor == defaultProcessorName) ?? new PaymentSummaryResult(defaultProcessorName, 0, 0);
+    var fallbackResult = result?.FirstOrDefault(r => r.Processor == fallbackProcessorName) ?? new PaymentSummaryResult(fallbackProcessorName, 0, 0);
 
     var response = new PaymentSummaryResponse(
         new PaymentSummary(defaultResult.TotalRequests, defaultResult.TotalAmount),
