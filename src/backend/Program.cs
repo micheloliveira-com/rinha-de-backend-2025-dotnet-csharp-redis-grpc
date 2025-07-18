@@ -84,9 +84,9 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
 
         var currentProcessor = defaultProcessorName;
         var success = false;
+        var requestedAt = DateTimeOffset.UtcNow;
         await limiter.RunAsync(async (ct) =>
         {
-            var requestedAt = DateTimeOffset.UtcNow;
             var response = await httpDefault.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
             (
                 request.Amount,
@@ -125,7 +125,7 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
             CorrelationId: request.CorrelationId,
             Processor: currentProcessor,
             Amount: request.Amount,
-            RequestedAt: DateTime.UtcNow
+            RequestedAt: requestedAt
         );
 
         int affectedRows = await conn.ExecuteAsync(sql, parameters);
@@ -176,7 +176,7 @@ public record PaymentInsertParameters(
     Guid CorrelationId,
     string Processor,
     decimal Amount,
-    DateTime RequestedAt
+    DateTimeOffset RequestedAt
 );
 
 public record PaymentSummaryResult(
