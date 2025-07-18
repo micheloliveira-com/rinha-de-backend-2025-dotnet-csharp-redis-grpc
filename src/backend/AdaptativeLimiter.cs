@@ -11,16 +11,17 @@ public class AdaptativeLimiter : IDisposable
     private readonly SemaphoreSlim LatencyLock = new(1, 1);
     private int UpThrottleInMs { get; set; } = 50;
     private int DownThrottleMs { get; set; } = 40;
-    private int CurrentLimitCount { get; set; } = 30;
-    private int MinLimitCount { get; } = 10;
-    private int MaxLimitCount { get; } = 50;
+    private int MinLimitCount { get; } = 300;
+    private int MaxLimitCount { get; } = 500;
     private int UpDownStepCount { get; } = 5;
-    private int LatencyAvgMaxCount { get; } = 10;
+    private int LatencyAvgQueueMaxCount { get; } = 10;
+    private Queue<long> LatestLatencies { get; } = new();
     private SemaphoreSlim Semaphore { get; set; }
-    private readonly Queue<long> LatestLatencies = new();
+    private int CurrentLimitCount { get; set; }
 
     public AdaptativeLimiter()
     {
+        CurrentLimitCount = MinLimitCount;
         Semaphore = new SemaphoreSlim(CurrentLimitCount);
     }
 
@@ -64,7 +65,7 @@ public class AdaptativeLimiter : IDisposable
         try
         {
             LatestLatencies.Enqueue(ms);
-            if (LatestLatencies.Count > LatencyAvgMaxCount)
+            if (LatestLatencies.Count > LatencyAvgQueueMaxCount)
                 LatestLatencies.Dequeue();
         }
         finally
