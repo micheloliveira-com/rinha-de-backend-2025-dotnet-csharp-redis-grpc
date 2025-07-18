@@ -7,70 +7,69 @@ using System.Threading.Tasks;
 
 public class AdaptativeLimiter : IDisposable
 {
-    private readonly SemaphoreSlim _syncLock = new(1, 1);
-    private readonly SemaphoreSlim _latencyLock = new(1, 1);
-
-    private int _currentLimit;
-    private readonly int _minLimit = 10;
-    private readonly int _maxLimit = 50;
-    private readonly int _step = 5;
-    private readonly int _windowSize = 10;
-
-    private SemaphoreSlim _semaphore;
-    private readonly Queue<long> _latencies = new();
+    private readonly SemaphoreSlim SyncLock = new(1, 1);
+    private readonly SemaphoreSlim LatencyLock = new(1, 1);
+    private int UpThrottleInMs { get; set; } = 50;
+    private int DownThrottleMs { get; set; } = 40;
+    private int CurrentLimitCount { get; set; } = 30;
+    private int MinLimitCount { get; } = 10;
+    private int MaxLimitCount { get; } = 50;
+    private int UpDownStepCount { get; } = 5;
+    private int LatencyAvgMaxCount { get; } = 10;
+    private SemaphoreSlim Semaphore { get; set; }
+    private readonly Queue<long> LatestLatencies = new();
 
     public AdaptativeLimiter()
     {
-        _currentLimit = 30;
-        _semaphore = new SemaphoreSlim(_currentLimit);
+        Semaphore = new SemaphoreSlim(CurrentLimitCount);
     }
 
     public async Task RunAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken = default)
     {
-        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-        var sw = Stopwatch.StartNew();
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        await Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var stopWatch = Stopwatch.StartNew();
+        var cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         var progressTask = Task.Run(async () =>
         {
             try
             {
-                while (!cts.Token.IsCancellationRequested)
+                while (!cancellationTokenSource.Token.IsCancellationRequested)
                 {
-                    await Task.Delay(51, cts.Token).ConfigureAwait(false);
-                    await RecordLatencyAsync(sw.ElapsedMilliseconds).ConfigureAwait(false);
+                    await Task.Delay(51, cancellationTokenSource.Token).ConfigureAwait(false);
+                    await RecordLatencyAsync(stopWatch.ElapsedMilliseconds).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) { }
-        }, cts.Token);
+        }, cancellationTokenSource.Token);
 
         try
         {
-            await operation(cts.Token).ConfigureAwait(false);
+            await operation(cancellationTokenSource.Token).ConfigureAwait(false);
         }
         finally
         {
-            sw.Stop();
-            cts.Cancel();
+            stopWatch.Stop();
+            cancellationTokenSource.Cancel();
             try { await progressTask.ConfigureAwait(false); } catch { }
 
-            await RecordLatencyAsync(sw.ElapsedMilliseconds).ConfigureAwait(false);
-            _semaphore.Release();
+            await RecordLatencyAsync(stopWatch.ElapsedMilliseconds).ConfigureAwait(false);
+            Semaphore.Release();
         }
     }
 
     private async Task RecordLatencyAsync(long ms)
     {
-        await _latencyLock.WaitAsync().ConfigureAwait(false);
+        await LatencyLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            _latencies.Enqueue(ms);
-            if (_latencies.Count > _windowSize)
-                _latencies.Dequeue();
+            LatestLatencies.Enqueue(ms);
+            if (LatestLatencies.Count > LatencyAvgMaxCount)
+                LatestLatencies.Dequeue();
         }
         finally
         {
-            _latencyLock.Release();
+            LatencyLock.Release();
         }
 
         await AdjustLimitAsync().ConfigureAwait(false);
@@ -80,51 +79,51 @@ public class AdaptativeLimiter : IDisposable
     {
         double avgLatency;
 
-        await _latencyLock.WaitAsync().ConfigureAwait(false);
+        await LatencyLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (_latencies.Count == 0) return;
-            avgLatency = _latencies.Average();
+            if (LatestLatencies.Count == 0) return;
+            avgLatency = LatestLatencies.Average();
         }
         finally
         {
-            _latencyLock.Release();
+            LatencyLock.Release();
         }
 
-        await _syncLock.WaitAsync().ConfigureAwait(false);
+        await SyncLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            int newLimit = _currentLimit;
+            int newLimit = CurrentLimitCount;
 
-            if (avgLatency > 50 && newLimit > _minLimit)
-                newLimit = Math.Max(_minLimit, newLimit - _step);
-            else if (avgLatency < 40 && newLimit < _maxLimit)
-                newLimit = Math.Min(_maxLimit, newLimit + _step);
+            if (avgLatency > UpThrottleInMs && newLimit > MinLimitCount)
+                newLimit = Math.Max(MinLimitCount, newLimit - UpDownStepCount);
+            else if (avgLatency < DownThrottleMs && newLimit < MaxLimitCount)
+                newLimit = Math.Min(MaxLimitCount, newLimit + UpDownStepCount);
 
-            if (newLimit != _currentLimit)
+            if (newLimit != CurrentLimitCount)
             {
                 Console.WriteLine($"[Limiter] New concurrency limit: {newLimit} | Avg latency: {avgLatency:0.0}ms");
 
-                int used = _currentLimit - _semaphore.CurrentCount;
+                int used = CurrentLimitCount - Semaphore.CurrentCount;
                 int available = Math.Max(0, newLimit - used);
 
                 var newSemaphore = new SemaphoreSlim(available);
 
-                _semaphore.Dispose();
-                _semaphore = newSemaphore;
-                _currentLimit = newLimit;
+                Semaphore.Dispose();
+                Semaphore = newSemaphore;
+                CurrentLimitCount = newLimit;
             }
         }
         finally
         {
-            _syncLock.Release();
+            SyncLock.Release();
         }
     }
 
     public void Dispose()
     {
-        _semaphore.Dispose();
-        _syncLock.Dispose();
-        _latencyLock.Dispose();
+        Semaphore.Dispose();
+        SyncLock.Dispose();
+        LatencyLock.Dispose();
     }
 }
