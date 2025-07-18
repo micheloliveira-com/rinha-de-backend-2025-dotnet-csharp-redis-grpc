@@ -134,8 +134,10 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
     return Results.Accepted();
 });
 
-apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to, IDbConnection conn) =>
+apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to, IDbConnection conn, AdaptativeLimiter limiter) =>
 {
+    limiter.Pause();
+    
     const string sql = @"
         SELECT processor,
                COUNT(*) AS total_requests,
@@ -146,6 +148,8 @@ apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [F
         GROUP BY processor;
     ";
     List<PaymentSummaryResult> result = [.. await conn.QueryAsync<PaymentSummaryResult>(sql, new { from, to })];
+
+    limiter.Resume();
 
     var defaultResult = result?.FirstOrDefault(r => r.Processor == defaultProcessorName) ?? new PaymentSummaryResult(defaultProcessorName, 0, 0);
     var fallbackResult = result?.FirstOrDefault(r => r.Processor == fallbackProcessorName) ?? new PaymentSummaryResult(fallbackProcessorName, 0, 0);
