@@ -5,6 +5,7 @@ using Npgsql;
 using Polly;
 using Polly.Extensions.Http;
 using System.Data;
+using System.Diagnostics;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 [module: DapperAot]
@@ -15,10 +16,19 @@ static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
         .HandleTransientHttpError()
         .WaitAndRetryAsync(
             3,
-            retryAttempt => TimeSpan.FromMilliseconds(500 * Math.Pow(2, retryAttempt - 1))
+            retryAttempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, retryAttempt - 1))
         );
 }
 
+static IAsyncPolicy<HttpResponseMessage> GetFallbackRetryPolicy()
+{
+    return HttpPolicyExtensions
+        .HandleTransientHttpError()
+        .WaitAndRetryAsync(
+            5,
+            retryAttempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, retryAttempt - 1))
+        );
+}
 
 const string defaultProcessorName = "default";
 const string fallbackProcessorName = "fallback";
@@ -36,13 +46,15 @@ builder.Services.AddHttpClient(defaultProcessorName, o =>
 
 builder.Services.AddHttpClient(fallbackProcessorName, o =>
     o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(fallbackProcessorName)!))
-        .AddPolicyHandler(GetRetryPolicy());
+        .AddPolicyHandler(GetFallbackRetryPolicy());
 
 builder.Services.AddTransient<IDbConnection>(sp =>
     new NpgsqlConnection(builder.Configuration.GetConnectionString("postgres")));
 
 builder.Services.AddSingleton<BackgroundWorkerQueue>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<BackgroundWorkerQueue>());
+
+builder.Services.AddSingleton<AdaptativeLimiter>();
 
 if (builder.Environment.IsProduction())
 {
@@ -55,53 +67,55 @@ var app = builder.Build();
 var apiGroup = app.MapGroup("/");
 apiGroup.MapGet("/", () => Results.Ok());
 
-var limiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
-{
-    TokenLimit = 100,
-    TokensPerPeriod = 100,
-    ReplenishmentPeriod = TimeSpan.FromSeconds(1),
-    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-    QueueLimit = int.MaxValue
-});
 
 apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, BackgroundWorkerQueue queue, IServiceScopeFactory scopeFactory) =>
 {
-    //using var lease = await limiter.AcquireAsync(1);
-    
+
     await queue.EnqueueAsync(async ct =>
     {
         using var scope = scopeFactory.CreateScope();
 
         var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
         var conn = scope.ServiceProvider.GetRequiredService<IDbConnection>();
+        var limiter = scope.ServiceProvider.GetRequiredService<AdaptativeLimiter>();
 
         var httpDefault = factory.CreateClient(defaultProcessorName);
         var httpFallback = factory.CreateClient(fallbackProcessorName);
 
-        var requestedAt = DateTimeOffset.UtcNow;
-        try
+        var currentProcessor = defaultProcessorName;
+        var success = false;
+        await limiter.RunAsync(async (ct) =>
         {
+            var requestedAt = DateTimeOffset.UtcNow;
             var response = await httpDefault.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
             (
                 request.Amount,
                 requestedAt,
                 request.CorrelationId
             ), JsonContext.Default.ProcessorPaymentRequest);
+            if (!response.IsSuccessStatusCode)
+            {
+                requestedAt = DateTimeOffset.UtcNow;
+                response = await httpFallback.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
+                (
+                    request.Amount,
+                    requestedAt,
+                    request.CorrelationId
+                ), JsonContext.Default.ProcessorPaymentRequest);
+                if (!response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"[DefaultProcessor] Payment not processed successfully for {request.CorrelationId}");
+                    return;
+                }
+                currentProcessor = fallbackProcessorName;
+            }
+            success = true;
+        });
 
-            response.EnsureSuccessStatusCode();
-        }
-        catch
+        if (!success)
         {
-            var response = await httpFallback.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
-            (
-                request.Amount,
-                requestedAt,
-                request.CorrelationId
-            ), JsonContext.Default.ProcessorPaymentRequest);
-
-            response.EnsureSuccessStatusCode();
+            return;
         }
-
         var sql = @"
             INSERT INTO payments (correlation_id, processor, amount, requested_at)
             VALUES (@CorrelationId, @Processor, @Amount, @RequestedAt)
@@ -110,13 +124,12 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
 
         var parameters = new PaymentInsertParameters(
             CorrelationId: request.CorrelationId,
-            Processor: defaultProcessorName,
+            Processor: currentProcessor,
             Amount: request.Amount,
             RequestedAt: DateTime.UtcNow
         );
 
         int affectedRows = await conn.ExecuteAsync(sql, parameters);
-        
     });
 
     return Results.Accepted();
