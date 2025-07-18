@@ -41,6 +41,9 @@ builder.Services.AddHttpClient(fallbackProcessorName, o =>
 builder.Services.AddTransient<IDbConnection>(sp =>
     new NpgsqlConnection(builder.Configuration.GetConnectionString("postgres")));
 
+builder.Services.AddSingleton<BackgroundWorkerQueue>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<BackgroundWorkerQueue>());
+
 if (builder.Environment.IsProduction())
 {
     builder.Logging.ClearProviders();
@@ -61,59 +64,60 @@ var limiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
     QueueLimit = int.MaxValue
 });
 
-apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, IDbConnection conn, IHttpClientFactory factory) =>
+apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, BackgroundWorkerQueue queue, IServiceScopeFactory scopeFactory) =>
 {
-    using var lease = await limiter.AcquireAsync(1);
+    //using var lease = await limiter.AcquireAsync(1);
     
-    var httpDefault = factory.CreateClient(defaultProcessorName);
-    var httpFallback = factory.CreateClient(fallbackProcessorName);
-
-    var requestedAt = DateTimeOffset.UtcNow;
-    try
+    await queue.EnqueueAsync(async ct =>
     {
-        var response = await httpDefault.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
-        (
-            request.Amount,
-            requestedAt,
-            request.CorrelationId
-        ), JsonContext.Default.ProcessorPaymentRequest);
+        using var scope = scopeFactory.CreateScope();
 
-        response.EnsureSuccessStatusCode();
-    }
-    catch
-    {
-        var response = await httpFallback.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
-        (
-            request.Amount,
-            requestedAt,
-            request.CorrelationId
-        ), JsonContext.Default.ProcessorPaymentRequest);
+        var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+        var conn = scope.ServiceProvider.GetRequiredService<IDbConnection>();
 
-        if (!response.IsSuccessStatusCode)
+        var httpDefault = factory.CreateClient(defaultProcessorName);
+        var httpFallback = factory.CreateClient(fallbackProcessorName);
+
+        var requestedAt = DateTimeOffset.UtcNow;
+        try
         {
-            return Results.Conflict();
+            var response = await httpDefault.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
+            (
+                request.Amount,
+                requestedAt,
+                request.CorrelationId
+            ), JsonContext.Default.ProcessorPaymentRequest);
+
+            response.EnsureSuccessStatusCode();
         }
-    }
+        catch
+        {
+            var response = await httpFallback.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
+            (
+                request.Amount,
+                requestedAt,
+                request.CorrelationId
+            ), JsonContext.Default.ProcessorPaymentRequest);
 
-    var sql = @"
-        INSERT INTO payments (correlation_id, processor, amount, requested_at)
-        VALUES (@CorrelationId, @Processor, @Amount, @RequestedAt)
-        ON CONFLICT (correlation_id) DO NOTHING;
-    ";
+            response.EnsureSuccessStatusCode();
+        }
 
-    var parameters = new PaymentInsertParameters(
-        CorrelationId: request.CorrelationId,
-        Processor: defaultProcessorName,
-        Amount: request.Amount,
-        RequestedAt: DateTime.UtcNow
-    );
+        var sql = @"
+            INSERT INTO payments (correlation_id, processor, amount, requested_at)
+            VALUES (@CorrelationId, @Processor, @Amount, @RequestedAt)
+            ON CONFLICT (correlation_id) DO NOTHING;
+        ";
 
-    int affectedRows = await conn.ExecuteAsync(sql, parameters);
+        var parameters = new PaymentInsertParameters(
+            CorrelationId: request.CorrelationId,
+            Processor: defaultProcessorName,
+            Amount: request.Amount,
+            RequestedAt: DateTime.UtcNow
+        );
 
-    if (affectedRows == 0)
-    {
-        return Results.Conflict();
-    }
+        int affectedRows = await conn.ExecuteAsync(sql, parameters);
+        
+    });
 
     return Results.Accepted();
 });
