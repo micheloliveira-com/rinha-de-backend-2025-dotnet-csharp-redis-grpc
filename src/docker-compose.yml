@@ -50,7 +50,7 @@ services:
       resources:
         limits:
           cpus: "0.1"
-          memory: "40MB"
+          memory: "10MB"
   backend-db:
     image: postgres:17-alpine
     command: 'postgres -c max_connections=400 -c synchronous_commit=off -c fsync=off -c full_page_writes=off'
@@ -68,7 +68,7 @@ services:
       resources:
         limits:
           cpus: "0.2"
-          memory: "100MB"   
+          memory: "130MB"   
   load-balancer:
     image: nginx:alpine
     volumes:

@@ -11,21 +11,71 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 [module: DapperAot]
 
-static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(IDatabase redisDb)
 {
     return HttpPolicyExtensions
         .HandleTransientHttpError()
         .WaitAndRetryAsync(
             5,
-            retryAttempt => TimeSpan.FromMilliseconds(80 * Math.Pow(2, retryAttempt - 1))
-        );
+            retryAttempt => TimeSpan.FromMilliseconds(80 * Math.Pow(2, retryAttempt - 1)),
+            onRetryAsync: async (outcome, timespan, retryCount, context) =>
+            {
+                const string requestsLockKey = "requests-lock";
+                bool wasLocked = false;
+                bool isLocked;
+                do
+                {
+                    isLocked = await redisDb.KeyExistsAsync("payments-summary-lock");
+
+                    if (isLocked)
+                    {
+                        if (!wasLocked)
+                        {
+                            await redisDb.StringDecrementAsync(requestsLockKey);
+                        }
+                        wasLocked = true;
+                        await Task.Delay(50);
+                    }
+
+                } while (isLocked);
+                if (wasLocked)
+                {
+                    await redisDb.StringIncrementAsync(requestsLockKey);
+                }
+            });
 }
 
-static IAsyncPolicy<HttpResponseMessage> GetFallbackRetryPolicy()
+static IAsyncPolicy<HttpResponseMessage> GetFallbackRetryPolicy(IDatabase redisDb)
 {
     var retryPolicy = HttpPolicyExtensions
         .HandleTransientHttpError()
-        .WaitAndRetryForeverAsync(_ => TimeSpan.FromMilliseconds(10));
+        .WaitAndRetryForeverAsync(
+            sleepDurationProvider: _ => TimeSpan.FromMilliseconds(10),
+            onRetryAsync: async (outcome, timespan, context) =>
+            {
+                const string requestsLockKey = "requests-lock";
+                bool wasLocked = false;
+                bool isLocked;
+                do
+                {
+                    isLocked = await redisDb.KeyExistsAsync("payments-summary-lock");
+
+                    if (isLocked)
+                    {
+                        if (!wasLocked)
+                        {
+                            await redisDb.StringDecrementAsync(requestsLockKey);
+                        }
+                        wasLocked = true;
+                        await Task.Delay(50);
+                    }
+
+                } while (isLocked);
+                if (wasLocked)
+                {
+                    await redisDb.StringIncrementAsync(requestsLockKey);
+                }
+            });
 
     var timeoutPolicy = Policy.TimeoutAsync<HttpResponseMessage>(TimeSpan.FromMinutes(1));
 
@@ -50,19 +100,40 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.Services.AddHttpClient(defaultProcessorName, o =>
     o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(defaultProcessorName)!))
-        .AddPolicyHandler(GetRetryPolicy());
+    .AddPolicyHandler((sp, req) =>
+    {
+        var redis = sp.GetRequiredService<IConnectionMultiplexer>();
+        var db = redis.GetDatabase();
+        return GetRetryPolicy(db);
+    });
 
 builder.Services.AddHttpClient(fallbackProcessorName, o =>
     o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(fallbackProcessorName)!))
-        .AddPolicyHandler(GetFallbackRetryPolicy());
+    .AddPolicyHandler((sp, req) =>
+    {
+        var redis = sp.GetRequiredService<IConnectionMultiplexer>();
+        var db = redis.GetDatabase();
+        return GetFallbackRetryPolicy(db);
+    });
 
 builder.Services.AddTransient<IDbConnection>(sp =>
     new NpgsqlConnection(builder.Configuration.GetConnectionString("postgres")));
 
+builder.Services.AddSingleton(_ =>
+{
+    return new AdaptativeLimiter(minLimitCount: 1000, maxLimitCount: 1500);
+});
+builder.Services.AddKeyedSingleton("postgres", (_, _) =>
+{
+    return new AdaptativeLimiter(minLimitCount: 200, maxLimitCount: 500);
+});
+builder.Services.AddKeyedSingleton("worker", (_, _) =>
+{
+    return new AdaptativeLimiter(minLimitCount: 500, maxLimitCount: 1000);
+});
+
 builder.Services.AddSingleton<BackgroundWorkerQueue>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<BackgroundWorkerQueue>());
-
-builder.Services.AddSingleton<AdaptativeLimiter>();
 
 if (builder.Environment.IsProduction())
 {
@@ -75,7 +146,6 @@ var app = builder.Build();
 var apiGroup = app.MapGroup("/");
 apiGroup.MapGet("/", () => Results.Ok());
 
-
 apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, BackgroundWorkerQueue queue, IServiceScopeFactory scopeFactory) =>
 {
 
@@ -86,6 +156,7 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
         var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
         var conn = scope.ServiceProvider.GetRequiredService<IDbConnection>();
         var limiter = scope.ServiceProvider.GetRequiredService<AdaptativeLimiter>();
+        var postgresLimiter = scope.ServiceProvider.GetRequiredKeyedService<AdaptativeLimiter>("postgres");
         var redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
 
         var httpDefault = factory.CreateClient(defaultProcessorName);
@@ -104,11 +175,13 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
 
                 if (isLocked)
                 {
-                    Console.WriteLine($"Consistency lock is held, waiting 50ms before retrying...");
                     await Task.Delay(50);
                 }
 
             } while (isLocked);
+
+            const string requestsLockKey = "requests-lock";
+            await redisDb.StringIncrementAsync(requestsLockKey);
 
             var response = await httpDefault.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
             (
@@ -116,8 +189,21 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
                 requestedAt,
                 request.CorrelationId
             ), JsonContext.Default.ProcessorPaymentRequest);
+            await redisDb.StringDecrementAsync(requestsLockKey);
             if (!response.IsSuccessStatusCode)
             {
+                isLocked = false;
+                do
+                {
+                    isLocked = await redisDb.KeyExistsAsync("payments-summary-lock");
+
+                    if (isLocked)
+                    {
+                        await Task.Delay(50);
+                    }
+
+                } while (isLocked);
+                await redisDb.StringIncrementAsync(requestsLockKey);
                 requestedAt = DateTimeOffset.UtcNow;
                 response = await httpFallback.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
                 (
@@ -125,14 +211,21 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
                     requestedAt,
                     request.CorrelationId
                 ), JsonContext.Default.ProcessorPaymentRequest);
+                await redisDb.StringDecrementAsync(requestsLockKey);
                 if (!response.IsSuccessStatusCode)
                 {
                     Console.WriteLine($"[DefaultProcessor] Payment not processed successfully for {request.CorrelationId}");
-                    return;
+                }
+                else
+                {
+                    success = true;
                 }
                 currentProcessor = fallbackProcessorName;
             }
-            success = true;
+            else
+            {
+                success = true;
+            }
         });
 
         if (!success)
@@ -142,22 +235,24 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
 
         const string lockKey = "payments-lock";
         await redisDb.StringIncrementAsync(lockKey);
-
-        const string sql = @"
+        await postgresLimiter.RunAsync(async (ct) =>
+        {
+            const string sql = @"
             INSERT INTO payments (correlation_id, processor, amount, requested_at)
             VALUES (@CorrelationId, @Processor, @Amount, @RequestedAt);
         ";
 
-        var parameters = new PaymentInsertParameters(
-            CorrelationId: request.CorrelationId,
-            Processor: currentProcessor,
-            Amount: request.Amount,
-            RequestedAt: requestedAt
-        );
+            var parameters = new PaymentInsertParameters(
+                CorrelationId: request.CorrelationId,
+                Processor: currentProcessor,
+                Amount: request.Amount,
+                RequestedAt: requestedAt
+            );
 
-        int affectedRows = await conn.ExecuteAsync(sql, parameters);
+            int affectedRows = await conn.ExecuteAsync(sql, parameters);
 
-        await redisDb.StringDecrementAsync(lockKey);
+            await redisDb.StringDecrementAsync(lockKey);
+        });
     });
 
     return Results.Accepted();
@@ -167,30 +262,15 @@ apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [F
 {
     var redisDb = redisConn.GetDatabase();
     const string lockKey = "payments-summary-lock";
-    string lockValue = Guid.NewGuid().ToString();
-    TimeSpan lockExpiry = TimeSpan.FromSeconds(10);
     await redisDb.StringSetAsync(
         lockKey,
-        lockValue,
-        lockExpiry,
+        string.Empty,
         when: When.NotExists);
     try
     {
-        int pgCounter = 0;
-        do
-        {
-            RedisValue value = await redisDb.StringGetAsync("payments-lock");
-            _ = int.TryParse(value, out pgCounter); // pgCounter is 0 if parse fails
-
-
-            if (pgCounter > 0)
-            {
-                Console.WriteLine($"Current payments-lock counter: {pgCounter} - Payments lock is held, waiting 50ms before retrying...");
-                await Task.Delay(50);
-            }
-
-        } while (pgCounter > 0);
-
+        await WaitForRedisLocksToReleaseAsync(
+            redisDb,
+            ["payments-lock", "requests-lock"]);
 
         const string sql = @"
             SELECT processor,
@@ -219,12 +299,42 @@ apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [F
     }
 });
 
+static async Task WaitForRedisLocksToReleaseAsync(
+        IDatabase redisDb,
+        IEnumerable<string> lockKeys,
+        int delayMs = 10,
+        CancellationToken cancellationToken = default)
+{
+    while (true)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var values = await Task.WhenAll(lockKeys.Select(k => redisDb.StringGetAsync(k)));
+        var activeLocks = lockKeys.Zip(values, (key, value) =>
+        {
+            _ = int.TryParse(value, out int count);
+            return (key, count);
+        }).Where(t => t.count > 0).ToList();
+
+        if (activeLocks.Count == 0)
+            break;
+
+        foreach (var (key, count) in activeLocks)
+        {
+            Console.WriteLine($"[RedisLock] {key} = {count} (locked)");
+        }
+
+        await Task.Delay(delayMs, cancellationToken);
+    }
+}
+
 
 apiGroup.MapPost("/purge-payments", async (IDbConnection conn, IConnectionMultiplexer redisConn) =>
 {
     var redisDb = redisConn.GetDatabase();
     await redisDb.KeyDeleteAsync("payments-summary-lock");
     await redisDb.KeyDeleteAsync("payments-lock");
+    await redisDb.KeyDeleteAsync("requests-lock");
     const string sql = "TRUNCATE TABLE payments";
     await conn.ExecuteAsync(sql);
 });

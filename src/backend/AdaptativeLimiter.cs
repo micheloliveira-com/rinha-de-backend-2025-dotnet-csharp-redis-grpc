@@ -11,16 +11,18 @@ public class AdaptativeLimiter : IDisposable
     private readonly SemaphoreSlim LatencyLock = new(1, 1);
     private int UpThrottleInMs { get; set; } = 50;
     private int DownThrottleMs { get; set; } = 40;
-    private int MinLimitCount { get; } = 300;
-    private int MaxLimitCount { get; } = 500;
     private int UpDownStepCount { get; } = 5;
     private int LatencyAvgQueueMaxCount { get; } = 10;
     private Queue<long> LatestLatencies { get; } = new();
     private SemaphoreSlim Semaphore { get; set; }
     private int CurrentLimitCount { get; set; }
+    private int MinLimitCount { get; }
+    private int MaxLimitCount { get; }
 
-    public AdaptativeLimiter()
+    public AdaptativeLimiter(int minLimitCount, int maxLimitCount)
     {
+        MinLimitCount = minLimitCount;
+        MaxLimitCount = maxLimitCount;
         CurrentLimitCount = MinLimitCount;
         Semaphore = new SemaphoreSlim(CurrentLimitCount);
     }
@@ -103,14 +105,13 @@ public class AdaptativeLimiter : IDisposable
 
             if (newLimit != CurrentLimitCount)
             {
-                Console.WriteLine($"[Limiter] New concurrency limit: {newLimit} | Avg latency: {avgLatency:0.0}ms");
+                //Console.WriteLine($"[Limiter] New concurrency limit: {newLimit} | Avg latency: {avgLatency:0.0}ms");
 
                 int used = CurrentLimitCount - Semaphore.CurrentCount;
                 int available = Math.Max(0, newLimit - used);
 
                 var newSemaphore = new SemaphoreSlim(available);
-
-                Semaphore.Dispose();
+                
                 Semaphore = newSemaphore;
                 CurrentLimitCount = newLimit;
             }
