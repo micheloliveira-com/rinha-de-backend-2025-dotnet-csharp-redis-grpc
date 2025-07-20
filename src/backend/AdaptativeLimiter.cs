@@ -14,7 +14,7 @@ public class AdaptativeLimiter : IDisposable
     private int UpDownStepCount { get; } = 5;
     private int LatencyAvgQueueMaxCount { get; } = 10;
     private Queue<long> LatestLatencies { get; } = new();
-    private SemaphoreSlim Semaphore { get; set; }
+    private SemaphoreSlim _semaphore;
     private int CurrentLimitCount { get; set; }
     private int MinLimitCount { get; }
     private int MaxLimitCount { get; }
@@ -24,12 +24,91 @@ public class AdaptativeLimiter : IDisposable
         MinLimitCount = minLimitCount;
         MaxLimitCount = maxLimitCount;
         CurrentLimitCount = MinLimitCount;
-        Semaphore = new SemaphoreSlim(CurrentLimitCount);
+        _semaphore = new SemaphoreSlim(CurrentLimitCount);
     }
+    public async Task<bool> TryWaitAsync(CancellationToken cancellationToken, int maxRetries = 10)
+    {
+        if (maxRetries <= 0)
+            return false;
+
+        using var logCts = new CancellationTokenSource();
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, logCts.Token);
+
+        var logTask = Task.Run(async () =>
+        {
+            try
+            {
+                while (!linkedCts.Token.IsCancellationRequested)
+                {
+                    await Task.Delay(1000, linkedCts.Token).ConfigureAwait(false);
+                    int used = CurrentLimitCount - _semaphore.CurrentCount;
+                    Console.WriteLine($"[Limiter] Waiting to acquire semaphore... Current: {_semaphore.CurrentCount} / Used: {used} / Limit: {CurrentLimitCount}");
+                }
+            }
+            catch (OperationCanceledException) { }
+        }, linkedCts.Token);
+
+        try
+        {
+            while (true)
+            {
+                await SyncLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    if (_semaphore.Wait(0))
+                        return true;
+                }
+                finally
+                {
+                    SyncLock.Release();
+                }
+
+                await Task.Delay(10, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            if (maxRetries <= 0)
+                return false;
+
+            return await TryWaitAsync(cancellationToken, maxRetries - 1).ConfigureAwait(false);
+        }
+        finally
+        {
+            logCts.Cancel();
+            try { await logTask.ConfigureAwait(false); } catch { }
+        }
+    }
+
+
+    public async Task<bool> TryReleaseAsync(int maxRetries = 10)
+    {
+        if (maxRetries <= 0)
+            return false;
+
+        try
+        {
+            await SyncLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                _semaphore.Release();
+                return true;
+            }
+            finally
+            {
+                SyncLock.Release();
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            return await TryReleaseAsync(maxRetries - 1).ConfigureAwait(false);
+        }
+    }
+
 
     public async Task RunAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken = default)
     {
-        await Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await TryWaitAsync(cancellationToken).ConfigureAwait(false);
         var stopWatch = Stopwatch.StartNew();
         var cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
@@ -39,7 +118,7 @@ public class AdaptativeLimiter : IDisposable
             {
                 while (!cancellationTokenSource.Token.IsCancellationRequested)
                 {
-                    await Task.Delay(51, cancellationTokenSource.Token).ConfigureAwait(false);
+                    await Task.Delay(UpThrottleInMs + 1, cancellationTokenSource.Token).ConfigureAwait(false);
                     await RecordLatencyAsync(stopWatch.ElapsedMilliseconds).ConfigureAwait(false);
                 }
             }
@@ -57,7 +136,7 @@ public class AdaptativeLimiter : IDisposable
             try { await progressTask.ConfigureAwait(false); } catch { }
 
             await RecordLatencyAsync(stopWatch.ElapsedMilliseconds).ConfigureAwait(false);
-            Semaphore.Release();
+            await TryReleaseAsync();
         }
     }
 
@@ -107,12 +186,12 @@ public class AdaptativeLimiter : IDisposable
             {
                 //Console.WriteLine($"[Limiter] New concurrency limit: {newLimit} | Avg latency: {avgLatency:0.0}ms");
 
-                int used = CurrentLimitCount - Semaphore.CurrentCount;
+                int used = CurrentLimitCount - _semaphore.CurrentCount;
                 int available = Math.Max(0, newLimit - used);
 
                 var newSemaphore = new SemaphoreSlim(available);
-                
-                Semaphore = newSemaphore;
+                var oldSemaphore = Interlocked.Exchange(ref _semaphore, newSemaphore);
+                oldSemaphore.Dispose();
                 CurrentLimitCount = newLimit;
             }
         }
@@ -124,7 +203,7 @@ public class AdaptativeLimiter : IDisposable
 
     public void Dispose()
     {
-        Semaphore.Dispose();
+        _semaphore.Dispose();
         SyncLock.Dispose();
         LatencyLock.Dispose();
     }

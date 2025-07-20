@@ -235,6 +235,7 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
 
         const string lockKey = "payments-lock";
         await redisDb.StringIncrementAsync(lockKey);
+
         await postgresLimiter.RunAsync(async (ct) =>
         {
             const string sql = @"
@@ -250,9 +251,9 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
             );
 
             int affectedRows = await conn.ExecuteAsync(sql, parameters);
-
-            await redisDb.StringDecrementAsync(lockKey);
         });
+        
+        await redisDb.StringDecrementAsync(lockKey);
     });
 
     return Results.Accepted();
@@ -300,11 +301,13 @@ apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [F
 });
 
 static async Task WaitForRedisLocksToReleaseAsync(
-        IDatabase redisDb,
-        IEnumerable<string> lockKeys,
-        int delayMs = 10,
-        CancellationToken cancellationToken = default)
+    IDatabase redisDb,
+    IEnumerable<string> lockKeys,
+    int delayMs = 10,
+    CancellationToken cancellationToken = default)
 {
+    var lastLogTime = DateTime.MinValue;
+
     while (true)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -319,14 +322,20 @@ static async Task WaitForRedisLocksToReleaseAsync(
         if (activeLocks.Count == 0)
             break;
 
-        foreach (var (key, count) in activeLocks)
+        var now = DateTime.UtcNow;
+        if ((now - lastLogTime).TotalSeconds >= 1)
         {
-            Console.WriteLine($"[RedisLock] {key} = {count} (locked)");
+            foreach (var (key, count) in activeLocks)
+            {
+                Console.WriteLine($"[RedisLock] {key} = {count} (locked)");
+            }
+            lastLogTime = now;
         }
 
         await Task.Delay(delayMs, cancellationToken);
     }
 }
+
 
 
 apiGroup.MapPost("/purge-payments", async (IDbConnection conn, IConnectionMultiplexer redisConn) =>
