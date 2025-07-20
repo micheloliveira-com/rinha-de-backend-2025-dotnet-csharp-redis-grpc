@@ -11,6 +11,7 @@ services:
       - ConnectionStrings__default=http://payment-processor-default:8080
       - ConnectionStrings__fallback=http://payment-processor-fallback:8080
       - ConnectionStrings__postgres=Host=backend-db;Port=5432;Database=backend-db;Username=postgres;Password=postgres;Pooling=true;Maximum Pool Size=200;Multiplexing=true;Timeout=15;Command Timeout=15;Cancellation Timeout=-1;No Reset On Close=true;Max Auto Prepare=20;Auto Prepare Min Usages=1;
+      - ConnectionStrings__redis=redis:6379
     ports:
       - "8080"
     deploy:
@@ -30,6 +31,7 @@ services:
       - ConnectionStrings__default=http://payment-processor-default:8080
       - ConnectionStrings__fallback=http://payment-processor-fallback:8080
       - ConnectionStrings__postgres=Host=backend-db;Port=5432;Database=backend-db;Username=postgres;Password=postgres;Pooling=true;Maximum Pool Size=200;Multiplexing=true;Timeout=15;Command Timeout=15;Cancellation Timeout=-1;No Reset On Close=true;Max Auto Prepare=20;Auto Prepare Min Usages=1;
+      - ConnectionStrings__redis=redis:6379
     ports:
       - "8080"
     deploy:
@@ -37,6 +39,18 @@ services:
         limits:
           cpus: "0.5"
           memory: "80MB"
+  redis:
+    image: redis:8-alpine
+    container_name: redis
+    networks:
+      - backend
+    ports:
+      - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: "40MB"
   backend-db:
     image: postgres:17-alpine
     command: 'postgres -c max_connections=400 -c synchronous_commit=off -c fsync=off -c full_page_writes=off'
@@ -53,8 +67,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.3"
-          memory: "140MB"   
+          cpus: "0.2"
+          memory: "100MB"   
   load-balancer:
     image: nginx:alpine
     volumes:

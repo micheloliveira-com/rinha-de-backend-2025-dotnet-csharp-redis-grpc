@@ -16,7 +16,6 @@ public class AdaptativeLimiter : IDisposable
     private int UpDownStepCount { get; } = 5;
     private int LatencyAvgQueueMaxCount { get; } = 10;
     private Queue<long> LatestLatencies { get; } = new();
-    private PauseTokenSource PauseTokenSource { get; } = new();
     private SemaphoreSlim Semaphore { get; set; }
     private int CurrentLimitCount { get; set; }
 
@@ -26,19 +25,8 @@ public class AdaptativeLimiter : IDisposable
         Semaphore = new SemaphoreSlim(CurrentLimitCount);
     }
 
-    public void Pause()
-    {
-        PauseTokenSource.Pause();
-    }
-
-    public void Resume()
-    {
-        PauseTokenSource.Resume();
-    }
-
     public async Task RunAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken = default)
     {
-        await PauseTokenSource.Token.WaitWhilePausedAsync().ConfigureAwait(false);
         await Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         var stopWatch = Stopwatch.StartNew();
         var cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
