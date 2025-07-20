@@ -15,19 +15,20 @@ static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
     return HttpPolicyExtensions
         .HandleTransientHttpError()
         .WaitAndRetryAsync(
-            3,
-            retryAttempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, retryAttempt - 1))
+            5,
+            retryAttempt => TimeSpan.FromMilliseconds(80 * Math.Pow(2, retryAttempt - 1))
         );
 }
 
 static IAsyncPolicy<HttpResponseMessage> GetFallbackRetryPolicy()
 {
-    return HttpPolicyExtensions
+    var retryPolicy = HttpPolicyExtensions
         .HandleTransientHttpError()
-        .WaitAndRetryAsync(
-            5,
-            retryAttempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, retryAttempt - 1))
-        );
+        .WaitAndRetryForeverAsync(_ => TimeSpan.FromMilliseconds(10));
+
+    var timeoutPolicy = Policy.TimeoutAsync<HttpResponseMessage>(TimeSpan.FromMinutes(1));
+
+    return Policy.WrapAsync(retryPolicy, timeoutPolicy);
 }
 
 const string defaultProcessorName = "default";
