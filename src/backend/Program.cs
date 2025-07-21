@@ -4,9 +4,11 @@ using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 using Polly;
 using Polly.Extensions.Http;
+using Polly.Retry;
 using StackExchange.Redis;
 using System.Data;
 using System.Diagnostics;
+using System.Net.Sockets;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 [module: DapperAot]
@@ -89,8 +91,31 @@ var builder = WebApplication.CreateSlimBuilder(args);
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 {
-    var configuration = builder.Configuration.GetConnectionString("redis");
-    return ConnectionMultiplexer.Connect(configuration!);
+    var configuration = builder.Configuration.GetConnectionString("redis")!;
+    var options = ConfigurationOptions.Parse(configuration);
+
+    // Retry every 5 seconds, for up to 10 minutes (120 retries)
+    var retryPolicy = Policy
+        .Handle<Exception>() // catch ANY exception
+        .WaitAndRetry(
+            retryCount: 120,
+            sleepDurationProvider: _ => TimeSpan.FromSeconds(5),
+            onRetry: (exception, timeSpan, retryCount, context) =>
+            {
+                Console.WriteLine($"[Redis] Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
+            });
+
+    return retryPolicy.Execute(() =>
+    {
+        Console.WriteLine("[Redis] Attempting connection...");
+        var muxer = ConnectionMultiplexer.Connect(options);
+
+        if (!muxer.IsConnected)
+            throw new Exception("Redis connection failed (IsConnected = false)");
+
+        Console.WriteLine("[Redis] Connected successfully.");
+        return muxer;
+    });
 });
 
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -121,7 +146,7 @@ builder.Services.AddTransient<IDbConnection>(sp =>
 
 builder.Services.AddSingleton(_ =>
 {
-    return new AdaptativeLimiter(minLimitCount: 1000, maxLimitCount: 1500);
+    return new AdaptativeLimiter(minLimitCount: 500, maxLimitCount: 1000);
 });
 builder.Services.AddKeyedSingleton("postgres", (_, _) =>
 {
@@ -132,6 +157,7 @@ builder.Services.AddKeyedSingleton("worker", (_, _) =>
     return new AdaptativeLimiter(minLimitCount: 500, maxLimitCount: 1000);
 });
 
+builder.Services.AddSingleton<PaymentBatchInserter>();
 builder.Services.AddSingleton<BackgroundWorkerQueue>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<BackgroundWorkerQueue>());
 
@@ -142,6 +168,34 @@ if (builder.Environment.IsProduction())
 }
 
 var app = builder.Build();
+
+var redis = app.Services.GetRequiredService<IConnectionMultiplexer>();
+var batchInserter = app.Services.GetRequiredService<PaymentBatchInserter>();
+
+var subscriber = redis.GetSubscriber();
+
+await subscriber.SubscribeAsync(
+    RedisChannel.Literal("payments-events"), 
+    async (channel, message) =>
+    {
+        Console.WriteLine($"[Redis] Received message on channel '{channel}': {message}");
+
+        try
+        {
+            var processedCount = await batchInserter.FlushBatchAsync();
+            Console.WriteLine($"[Redis] Processed batch with {processedCount} records.");
+
+            const string lockKey = "payments-lock";
+            var redisDb = redis.GetDatabase();
+
+            var newValue = await redisDb.StringDecrementAsync(lockKey, processedCount);
+            Console.WriteLine($"[Redis] Decremented '{lockKey}' by {processedCount}. New value: {newValue}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Redis][Error] Exception while processing message: {ex}");
+        }
+    });
 
 var apiGroup = app.MapGroup("/");
 apiGroup.MapGet("/", () => Results.Ok());
@@ -158,6 +212,8 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
         var limiter = scope.ServiceProvider.GetRequiredService<AdaptativeLimiter>();
         var postgresLimiter = scope.ServiceProvider.GetRequiredKeyedService<AdaptativeLimiter>("postgres");
         var redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
+        var batchInserter = scope.ServiceProvider.GetRequiredService<PaymentBatchInserter>();
+
 
         var httpDefault = factory.CreateClient(defaultProcessorName);
         var httpFallback = factory.CreateClient(fallbackProcessorName);
@@ -236,24 +292,39 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
         const string lockKey = "payments-lock";
         await redisDb.StringIncrementAsync(lockKey);
 
-        await postgresLimiter.RunAsync(async (ct) =>
+
+        var parameters = new PaymentInsertParameters(
+            CorrelationId: request.CorrelationId,
+            Processor: currentProcessor,
+            Amount: request.Amount,
+            RequestedAt: requestedAt
+        );
+        int processedCount = await batchInserter.AddAsync(parameters);
+        /*if (processedCount == 0)
         {
-            const string sql = @"
-                INSERT INTO payments (correlation_id, processor, amount, requested_at)
-                VALUES (@CorrelationId, @Processor, @Amount, @RequestedAt);
-            ";
+            bool wasLocked = false;
+            bool isLocked;
+            do
+            {
+                isLocked = await redisDb.KeyExistsAsync("payments-summary-lock");
 
-            var parameters = new PaymentInsertParameters(
-                CorrelationId: request.CorrelationId,
-                Processor: currentProcessor,
-                Amount: request.Amount,
-                RequestedAt: requestedAt
-            );
+                if (isLocked)
+                {
+                    if (!wasLocked)
+                    {
+                        processedCount = await batchInserter.FlushBatchAsync();
+                    }
+                    wasLocked = true;
+                    await Task.Delay(50);
+                }
 
-            int affectedRows = await conn.ExecuteAsync(sql, parameters);
-        });
-        
-        await redisDb.StringDecrementAsync(lockKey);
+            } while (isLocked);
+        }*/
+        if (processedCount > 0)
+        {
+            await redisDb.StringDecrementAsync(lockKey, processedCount);
+        }
+
     });
 
     return Results.Accepted();
@@ -262,6 +333,9 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
 apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to, IDbConnection conn, AdaptativeLimiter limiter, IConnectionMultiplexer redisConn) =>
 {
     var redisDb = redisConn.GetDatabase();
+    await redisConn.GetSubscriber().PublishAsync(
+        RedisChannel.Literal("payments-events"), 
+        "your message here");
     const string lockKey = "payments-summary-lock";
     await redisDb.StringSetAsync(
         lockKey,
