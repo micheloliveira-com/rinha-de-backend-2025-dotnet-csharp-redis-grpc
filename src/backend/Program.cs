@@ -8,6 +8,7 @@ using Polly.Retry;
 using StackExchange.Redis;
 using System.Data;
 using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
@@ -93,6 +94,15 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.Services.AddHttpClient(defaultProcessorName, o =>
     o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(defaultProcessorName)!))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        MaxConnectionsPerServer = int.MaxValue, // Remove connection limit
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+        EnableMultipleHttp2Connections = true, // Helps with HTTP/2
+        ConnectTimeout = TimeSpan.FromSeconds(5),
+        AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
+    })
     .AddPolicyHandler((sp, req) =>
     {
         var redis = sp.GetRequiredService<IConnectionMultiplexer>();
@@ -102,6 +112,15 @@ builder.Services.AddHttpClient(defaultProcessorName, o =>
 
 builder.Services.AddHttpClient(fallbackProcessorName, o =>
     o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(fallbackProcessorName)!))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        MaxConnectionsPerServer = int.MaxValue, // Remove connection limit
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+        EnableMultipleHttp2Connections = true, // Helps with HTTP/2
+        ConnectTimeout = TimeSpan.FromSeconds(5),
+        AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
+    })
     .AddPolicyHandler((sp, req) =>
     {
         var redis = sp.GetRequiredService<IConnectionMultiplexer>();
