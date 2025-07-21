@@ -52,9 +52,22 @@ static IAsyncPolicy<HttpResponseMessage> GetFallbackRetryPolicy(IDatabase redisD
     var retryPolicy = HttpPolicyExtensions
         .HandleTransientHttpError()
         .WaitAndRetryForeverAsync(
-            sleepDurationProvider: _ => TimeSpan.FromMilliseconds(10),
+//                        sleepDurationProvider: _ => TimeSpan.FromMilliseconds(10),
+
+            sleepDurationProvider: _ => TimeSpan.Zero, //work
             onRetryAsync: async (outcome, timespan, context) =>
             {
+/*
+        // 👉 Before custom delay
+        Console.WriteLine($"[Retry {retryCount}] - Before custom delay");
+
+        // 🔁 Your own sleep logic
+        var delay = TimeSpan.FromSeconds(5);
+        await Task.Delay(delay);
+
+        // 👉 After custom delay
+        Console.WriteLine($"[Retry {retryCount}] - After custom delay");
+*/
                 const string requestsLockKey = "requests-lock";
                 bool wasLocked = false;
                 bool isLocked;
@@ -146,7 +159,7 @@ builder.Services.AddTransient<IDbConnection>(sp =>
 
 builder.Services.AddSingleton(_ =>
 {
-    return new AdaptativeLimiter(minLimitCount: 500, maxLimitCount: 1000);
+    return new AdaptativeLimiter(minLimitCount: 40, maxLimitCount: 60);
 });
 builder.Services.AddKeyedSingleton("postgres", (_, _) =>
 {
