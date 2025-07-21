@@ -31,10 +31,10 @@ public class AdaptativeLimiter : IDisposable
         if (maxRetries <= 0)
             return false;
 
-        using var logCts = new CancellationTokenSource();
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, logCts.Token);
+        //using var logCts = new CancellationTokenSource();
+        //using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, logCts.Token);
 
-        var logTask = Task.Run(async () =>
+        /*var logTask = Task.Run(async () =>
         {
             try
             {
@@ -46,7 +46,7 @@ public class AdaptativeLimiter : IDisposable
                 }
             }
             catch (OperationCanceledException) { }
-        }, linkedCts.Token);
+        }, linkedCts.Token);*/
 
         try
         {
@@ -75,8 +75,8 @@ public class AdaptativeLimiter : IDisposable
         }
         finally
         {
-            logCts.Cancel();
-            try { await logTask.ConfigureAwait(false); } catch { }
+            //logCts.Cancel();
+            //try { await logTask.ConfigureAwait(false); } catch { }
         }
     }
 

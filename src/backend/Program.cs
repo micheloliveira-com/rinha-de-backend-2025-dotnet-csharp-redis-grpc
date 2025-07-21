@@ -125,7 +125,7 @@ builder.Services.AddSingleton(_ =>
 });
 builder.Services.AddKeyedSingleton("postgres", (_, _) =>
 {
-    return new AdaptativeLimiter(minLimitCount: 200, maxLimitCount: 500);
+    return new AdaptativeLimiter(minLimitCount: 100, maxLimitCount: 500);
 });
 builder.Services.AddKeyedSingleton("worker", (_, _) =>
 {
@@ -239,9 +239,9 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
         await postgresLimiter.RunAsync(async (ct) =>
         {
             const string sql = @"
-            INSERT INTO payments (correlation_id, processor, amount, requested_at)
-            VALUES (@CorrelationId, @Processor, @Amount, @RequestedAt);
-        ";
+                INSERT INTO payments (correlation_id, processor, amount, requested_at)
+                VALUES (@CorrelationId, @Processor, @Amount, @RequestedAt);
+            ";
 
             var parameters = new PaymentInsertParameters(
                 CorrelationId: request.CorrelationId,
@@ -304,8 +304,10 @@ static async Task WaitForRedisLocksToReleaseAsync(
     IDatabase redisDb,
     IEnumerable<string> lockKeys,
     int delayMs = 10,
+    int maxDelayMs = 1000,
     CancellationToken cancellationToken = default)
 {
+    var startTime = DateTime.UtcNow;
     var lastLogTime = DateTime.MinValue;
 
     while (true)
@@ -323,6 +325,14 @@ static async Task WaitForRedisLocksToReleaseAsync(
             break;
 
         var now = DateTime.UtcNow;
+        var elapsedMs = (int)(now - startTime).TotalMilliseconds;
+
+        if (elapsedMs >= maxDelayMs)
+        {
+            Console.WriteLine($"[RedisLock] Max wait time of {maxDelayMs}ms exceeded, continuing.");
+            break;
+        }
+
         if ((now - lastLogTime).TotalSeconds >= 1)
         {
             foreach (var (key, count) in activeLocks)
@@ -332,7 +342,8 @@ static async Task WaitForRedisLocksToReleaseAsync(
             lastLogTime = now;
         }
 
-        await Task.Delay(delayMs, cancellationToken);
+        int remainingMs = Math.Min(delayMs, maxDelayMs - elapsedMs);
+        await Task.Delay(remainingMs, cancellationToken);
     }
 }
 
