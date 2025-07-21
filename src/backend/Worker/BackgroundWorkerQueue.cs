@@ -4,10 +4,8 @@ using System.Threading.RateLimiting;
 public class BackgroundWorkerQueue : BackgroundService
 {
     private Channel<Func<CancellationToken, Task>> Channel { get; }
-    public AdaptativeLimiter AdaptativeLimiter { get; }
-    public BackgroundWorkerQueue([FromKeyedServices("worker")] AdaptativeLimiter limiter)
+    public BackgroundWorkerQueue()
     {
-        AdaptativeLimiter = limiter;
         Channel = System.Threading.Channels.Channel.CreateUnbounded<Func<CancellationToken, Task>>(new UnboundedChannelOptions
         {
             SingleReader = false,
@@ -27,22 +25,25 @@ public class BackgroundWorkerQueue : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var concurrencyLimiter = new SemaphoreSlim(5);
+
         await foreach (var workItem in Channel.Reader.ReadAllAsync(stoppingToken))
         {
-
+            await concurrencyLimiter.WaitAsync(stoppingToken);
             _ = Task.Run(async () =>
             {
-                //await AdaptativeLimiter.RunAsync(async (ct) =>
-                //{
-                    try
-                    {
-                        await workItem(stoppingToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Background task error: {ex}");
-                    }
-                //});
+                try
+                {
+                    await workItem(stoppingToken);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Background task error: {ex}");
+                }
+                finally
+                {
+                    concurrencyLimiter.Release();
+                }
             }, stoppingToken);
         }
     }

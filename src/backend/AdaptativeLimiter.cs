@@ -11,7 +11,7 @@ public class AdaptativeLimiter : IDisposable
     private readonly SemaphoreSlim LatencyLock = new(1, 1);
     private int UpThrottleInMs { get; set; } = 50;
     private int DownThrottleMs { get; set; } = 40;
-    private int UpDownStepCount { get; } = 5;
+    private int UpDownStepCount { get; } = 1;
     private int LatencyAvgQueueMaxCount { get; } = 10;
     private Queue<long> LatestLatencies { get; } = new();
     private SemaphoreSlim _semaphore;
