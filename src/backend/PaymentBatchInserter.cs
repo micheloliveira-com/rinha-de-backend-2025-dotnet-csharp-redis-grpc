@@ -13,14 +13,17 @@ public class PaymentBatchInserter
     private int BatchSize { get; } = 100;
 
     private IDbConnection DbConnection { get; }
+    private BusyInstanceTracker Tracker { get; }
 
-    public PaymentBatchInserter(IDbConnection dbConnection)
+    public PaymentBatchInserter(IDbConnection dbConnection, [FromKeyedServices("tracker:postgres")] BusyInstanceTracker tracker)
     {
         DbConnection = dbConnection ?? throw new ArgumentNullException(nameof(dbConnection));
+        Tracker = tracker ?? throw new ArgumentNullException(nameof(tracker));
     }
 
     public async Task<int> AddAsync(PaymentInsertParameters payment)
     {
+        await Tracker.IncrementAsync();
         Buffer.Enqueue(payment);
 
         if (Buffer.Count >= BatchSize)
@@ -87,6 +90,8 @@ public class PaymentBatchInserter
             //Console.WriteLine($"Inserted batch of {batch.Count} records in {batchStopwatch.ElapsedMilliseconds} ms");
 
             totalInserted += batch.Count;
+
+            await Tracker.DecrementAsync(batch.Count);
         }
 
         totalStopwatch.Stop();
