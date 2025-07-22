@@ -23,12 +23,13 @@ public class PaymentBatchInserter
 
     public async Task<int> AddAsync(PaymentInsertParameters payment)
     {
-        await Tracker.IncrementAsync();
+        await Tracker.IncrementAsync().ConfigureAwait(false);
         Buffer.Enqueue(payment);
 
         if (Buffer.Count >= BatchSize)
         {
-            return await FlushBatchAsync();
+            Console.WriteLine($"[Batch] Buffer reached batch size ({BatchSize}). Flushing batch...");
+            return await FlushBatchAsync().ConfigureAwait(false);
         }
         return 0;
     }
@@ -48,7 +49,7 @@ public class PaymentBatchInserter
         string connectionString = npgsqlConn.ConnectionString;
 
         await using var conn = new NpgsqlConnection(connectionString);
-        await conn.OpenAsync();
+        await conn.OpenAsync().ConfigureAwait(false);
 
         var totalStopwatch = Stopwatch.StartNew();
 
@@ -83,7 +84,7 @@ public class PaymentBatchInserter
 
             string finalSql = sqlBuilder.ToString();
 
-            await conn.ExecuteAsync(finalSql, parameters);
+            await conn.ExecuteAsync(finalSql, parameters).ConfigureAwait(false);
 
             batchStopwatch.Stop();
 
@@ -91,7 +92,7 @@ public class PaymentBatchInserter
 
             totalInserted += batch.Count;
 
-            await Tracker.DecrementAsync(batch.Count);
+            await Tracker.DecrementAsync(batch.Count).ConfigureAwait(false);
         }
 
         totalStopwatch.Stop();

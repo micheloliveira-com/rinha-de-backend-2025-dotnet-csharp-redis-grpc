@@ -20,21 +20,21 @@ public class BackgroundWorkerQueue : BackgroundService
             throw new ArgumentNullException(nameof(workItem));
         }
 
-        await Channel.Writer.WriteAsync(workItem);
+        await Channel.Writer.WriteAsync(workItem).ConfigureAwait(false);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var concurrencyLimiter = new SemaphoreSlim(10);
 
-        await foreach (var workItem in Channel.Reader.ReadAllAsync(stoppingToken))
+        await foreach (var workItem in Channel.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
         {
-            await concurrencyLimiter.WaitAsync(stoppingToken);
+            await concurrencyLimiter.WaitAsync(stoppingToken).ConfigureAwait(false);
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await workItem(stoppingToken);
+                    await workItem(stoppingToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {

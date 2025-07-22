@@ -20,7 +20,7 @@ public class CountingHandler : DelegatingHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        await _tracker.IncrementAsync();
+        await _tracker.IncrementAsync().ConfigureAwait(false);
 
         try
         {
@@ -28,7 +28,7 @@ public class CountingHandler : DelegatingHandler
         }
         finally
         {
-            await _tracker.DecrementAsync();
+            await _tracker.DecrementAsync().ConfigureAwait(false);
         }
     }
 }

@@ -136,7 +136,7 @@ public class AdaptativeLimiter : IDisposable
             try { await progressTask.ConfigureAwait(false); } catch { }
 
             await RecordLatencyAsync(stopWatch.ElapsedMilliseconds).ConfigureAwait(false);
-            await TryReleaseAsync();
+            await TryReleaseAsync().ConfigureAwait(false);
         }
     }
 
