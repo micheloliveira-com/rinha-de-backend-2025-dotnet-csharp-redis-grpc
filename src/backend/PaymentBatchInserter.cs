@@ -10,7 +10,7 @@ using Npgsql;
 public class PaymentBatchInserter
 {
     private ConcurrentQueue<PaymentInsertParameters> Buffer { get; } = new();
-    private int BatchSize { get; } = 1000;
+    private int BatchSize { get; } = 100;
 
     private IDbConnection DbConnection { get; }
 

@@ -133,7 +133,7 @@ builder.Services.AddTransient<IDbConnection>(sp =>
 
 builder.Services.AddSingleton(_ =>
 {
-    return new AdaptativeLimiter(minLimitCount: 1, maxLimitCount: 5);
+    return new AdaptativeLimiter(minLimitCount: 1, maxLimitCount: 10);
 });
 builder.Services.AddKeyedSingleton("postgres", (_, _) =>
 {
@@ -209,9 +209,7 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
         using var scope = scopeFactory.CreateScope();
 
         var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
-        var conn = scope.ServiceProvider.GetRequiredService<IDbConnection>();
         var limiter = scope.ServiceProvider.GetRequiredService<AdaptativeLimiter>();
-        var postgresLimiter = scope.ServiceProvider.GetRequiredKeyedService<AdaptativeLimiter>("postgres");
         var redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
         var batchInserter = scope.ServiceProvider.GetRequiredService<PaymentBatchInserter>();
 
