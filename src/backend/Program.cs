@@ -109,7 +109,8 @@ builder.Services.AddHttpClient(defaultProcessorName, o =>
         var gate = sp.GetRequiredService<AsyncBlockingGate>();
         var db = redis.GetDatabase();
         return GetRetryPolicy(db, gate);
-    });
+    })
+    .AddHttpMessageHandler<CountingHandler>();
 
 builder.Services.AddHttpClient(fallbackProcessorName, o =>
     o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(fallbackProcessorName)!))
@@ -128,10 +129,14 @@ builder.Services.AddHttpClient(fallbackProcessorName, o =>
         var gate = sp.GetRequiredService<AsyncBlockingGate>();
         var db = redis.GetDatabase();
         return GetFallbackRetryPolicy(db, gate);
-    });
+    })
+    .AddHttpMessageHandler<CountingHandler>();
 
 builder.Services.AddTransient<IDbConnection>(sp =>
     new NpgsqlConnection(builder.Configuration.GetConnectionString("postgres")));
+
+builder.Services.AddTransient<CountingHandler>();
+builder.Services.AddSingleton<BusyInstanceTracker>();
 
 builder.Services.AddSingleton(_ =>
 {
@@ -146,7 +151,9 @@ builder.Services.AddKeyedSingleton("worker", (_, _) =>
     return new AdaptativeLimiter(minLimitCount: 500, maxLimitCount: 1000);
 });
 
+builder.Services.AddSingleton<BusyMonitor>();
 builder.Services.AddSingleton<AsyncBlockingGate>();
+builder.Services.AddKeyedSingleton<AsyncBlockingGate>("channel:busy:http");
 builder.Services.AddSingleton<PaymentBatchInserter>();
 builder.Services.AddSingleton<BackgroundWorkerQueue>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<BackgroundWorkerQueue>());
@@ -160,10 +167,27 @@ if (builder.Environment.IsProduction())
 var app = builder.Build();
 
 var redis = app.Services.GetRequiredService<IConnectionMultiplexer>();
+var busyMonitor = app.Services.GetRequiredService<BusyMonitor>();
 var batchInserter = app.Services.GetRequiredService<PaymentBatchInserter>();
 var blockingGate = app.Services.GetRequiredService<AsyncBlockingGate>();
+var busyHttpBlockingGate = app.Services.GetRequiredKeyedService<AsyncBlockingGate>("channel:busy:http");
 
 var subscriber = redis.GetSubscriber();
+
+await subscriber.SubscribeAsync(
+    RedisChannel.Literal("channel:busy:http"), async (channel, message) =>
+{
+    bool allIdle = await busyMonitor.AreAllIdleAsync();
+
+    if (allIdle)
+    {
+        await busyHttpBlockingGate.SetUnblockedAsync();
+    }
+    else
+    {
+        await busyHttpBlockingGate.SetBlockedAsync();
+    }
+});
 
 await subscriber.SubscribeAsync(
     RedisChannel.Literal("payments-summary-gate"), 
@@ -233,22 +257,16 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
         await limiter.RunAsync(async (ct) =>
         {
             await blockingGate.WaitIfBlockedAsync();
-
-            const string requestsLockKey = "requests-lock";
-            await redisDb.StringIncrementAsync(requestsLockKey);
-
             var response = await httpDefault.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
             (
                 request.Amount,
                 requestedAt,
                 request.CorrelationId
             ), JsonContext.Default.ProcessorPaymentRequest);
-            await redisDb.StringDecrementAsync(requestsLockKey);
             if (!response.IsSuccessStatusCode)
             {
                 
                 await blockingGate.WaitIfBlockedAsync();
-                await redisDb.StringIncrementAsync(requestsLockKey);
                 requestedAt = DateTimeOffset.UtcNow;
                 response = await httpFallback.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
                 (
@@ -256,7 +274,6 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
                     requestedAt,
                     request.CorrelationId
                 ), JsonContext.Default.ProcessorPaymentRequest);
-                await redisDb.StringDecrementAsync(requestsLockKey);
                 if (!response.IsSuccessStatusCode)
                 {
                     Console.WriteLine($"[DefaultProcessor] Payment not processed successfully for {request.CorrelationId}");
@@ -299,17 +316,22 @@ apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, Backgroun
     return Results.Accepted();
 });
 
-apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to, IDbConnection conn, AdaptativeLimiter limiter, IConnectionMultiplexer redisConn) =>
+apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to, IDbConnection conn, AdaptativeLimiter limiter, IConnectionMultiplexer redisConn,
+[FromKeyedServices("channel:busy:http")] AsyncBlockingGate channelBlockingGate) =>
 {
     var redisDb = redisConn.GetDatabase();
     await redisConn.GetSubscriber().PublishAsync(
-        RedisChannel.Literal("payments-summary-gate"), 
+        RedisChannel.Literal("payments-summary-gate"),
         "1");
     try
     {
-        await WaitForRedisLocksToReleaseAsync(
-            redisDb,
-            ["payments-lock", "requests-lock"]);
+        await WaitWithTimeoutAsync(async () =>
+        {
+            await WaitForRedisLocksToReleaseAsync(
+                redisDb,
+                ["payments-lock"]);
+            await channelBlockingGate.WaitIfBlockedAsync();
+        }, timeout: TimeSpan.FromSeconds(1));
 
         const string sql = @"
             SELECT processor,
@@ -335,10 +357,23 @@ apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [F
     finally
     {
         await redisConn.GetSubscriber().PublishAsync(
-            RedisChannel.Literal("payments-summary-gate"), 
+            RedisChannel.Literal("payments-summary-gate"),
             "0");
     }
 });
+
+static async Task<bool> WaitWithTimeoutAsync(Func<Task> taskFactory, TimeSpan timeout)
+{
+    var task = taskFactory();
+    var timeoutTask = Task.Delay(timeout);
+    var completedTask = await Task.WhenAny(task, timeoutTask).ConfigureAwait(false);
+
+    if (completedTask == timeoutTask)
+        return false; // Timed out
+
+    await task.ConfigureAwait(false); // propagate exceptions if any
+    return true; // Completed successfully
+}
 
 static async Task WaitForRedisLocksToReleaseAsync(
     IDatabase redisDb,
@@ -393,7 +428,6 @@ apiGroup.MapPost("/purge-payments", async (IDbConnection conn, IConnectionMultip
 {
     var redisDb = redisConn.GetDatabase();
     await redisDb.KeyDeleteAsync("payments-lock");
-    await redisDb.KeyDeleteAsync("requests-lock");
     const string sql = "TRUNCATE TABLE payments";
     await conn.ExecuteAsync(sql);
 });
@@ -402,17 +436,7 @@ app.Run();
 
 static async Task LockChecks(IDatabase redisDb, AsyncBlockingGate blockingGate)
 {
-    const string requestsLockKey = "requests-lock";
-    var wasBlocked = await blockingGate.WaitIfBlockedAsync(
-        onBlockedAsync: async () =>
-        {
-            await redisDb.StringDecrementAsync(requestsLockKey);
-        }
-    );
-    if (wasBlocked)
-    {
-        await redisDb.StringIncrementAsync(requestsLockKey);
-    }
+    await blockingGate.WaitIfBlockedAsync();
 }
 public sealed record ProcessorPaymentRequest(
     decimal Amount,

@@ -3,8 +3,15 @@ using System.Threading.Tasks;
 
 public class AsyncBlockingGate
 {
-    private TaskCompletionSource _tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource _tcs = CreateCompletedTcs();
     private readonly SemaphoreSlim _mutex = new(1, 1);
+
+    private static TaskCompletionSource CreateCompletedTcs()
+    {
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        tcs.TrySetResult();
+        return tcs;
+    }
 
     public async Task<bool> IsBlockedAsync()
     {
