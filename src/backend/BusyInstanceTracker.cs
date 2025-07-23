@@ -29,7 +29,7 @@ public class BusyInstanceTracker
         if (newCount == 1)
         {
             await _redisDb.HashSetAsync(_hashKey, _hostname, "1").ConfigureAwait(false);
-            await _subscriber.PublishAsync(RedisChannel.Literal(_channelName), "true").ConfigureAwait(false);
+            await _subscriber.PublishAsync(RedisChannel.Literal(_channelName), "1").ConfigureAwait(false);
         }
     }
 
@@ -40,7 +40,7 @@ public class BusyInstanceTracker
         {
             Interlocked.Exchange(ref _inFlightRequestCount, 0);
             await _redisDb.HashSetAsync(_hashKey, _hostname, "0").ConfigureAwait(false);
-            await _subscriber.PublishAsync(RedisChannel.Literal(_channelName), "false").ConfigureAwait(false);
+            await _subscriber.PublishAsync(RedisChannel.Literal(_channelName), "0").ConfigureAwait(false);
         }
     }
 }
