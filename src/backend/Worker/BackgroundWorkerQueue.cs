@@ -25,7 +25,7 @@ public class BackgroundWorkerQueue : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var concurrencyLimiter = new SemaphoreSlim(10);
+        var concurrencyLimiter = new SemaphoreSlim(25);
 
         await foreach (var workItem in Channel.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
         {

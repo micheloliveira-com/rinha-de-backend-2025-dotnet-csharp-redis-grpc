@@ -10,6 +10,7 @@ using System.Data;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 [module: DapperAot]
@@ -90,6 +91,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, JsonContext.Default);
+    options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
 });
 
 builder.Services.AddHttpClient(defaultProcessorName, o =>
@@ -157,12 +159,13 @@ builder.Services.AddKeyedSingleton("tracker:postgres", (sp, _) =>
     return new BusyInstanceTracker(redis, "postgres");
 });
 
+builder.Services.AddSingleton<PaymentService>();
 builder.Services.AddSingleton<AsyncBlockingGate>();
 builder.Services.AddKeyedSingleton<AsyncBlockingGate>("channel:busy:postgres");
 builder.Services.AddKeyedSingleton<AsyncBlockingGate>("channel:busy:http");
 builder.Services.AddSingleton<PaymentBatchInserter>();
-builder.Services.AddSingleton<BackgroundWorkerQueue>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<BackgroundWorkerQueue>());
+builder.Services.AddSingleton<RedisQueueWorker>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<RedisQueueWorker>());
 
 if (builder.Environment.IsProduction())
 {
@@ -275,76 +278,18 @@ subscriber.Subscribe(
     var apiGroup = app.MapGroup("/");
     apiGroup.MapGet("/", () => Results.Ok());
 
-    apiGroup.MapPost("payments", async ([FromBody] PaymentRequest request, BackgroundWorkerQueue queue, IServiceScopeFactory scopeFactory) =>
+    apiGroup.MapPost("payments", async (HttpContext context, IConnectionMultiplexer redis) =>
     {
-
-        await queue.EnqueueAsync(async ct =>
-        {
-            using var scope = scopeFactory.CreateScope();
-
-            var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
-            var limiter = scope.ServiceProvider.GetRequiredService<AdaptativeLimiter>();
-            var redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
-            var batchInserter = scope.ServiceProvider.GetRequiredService<PaymentBatchInserter>();
-            var blockingGate = scope.ServiceProvider.GetRequiredService<AsyncBlockingGate>();
-
-
-            var httpDefault = factory.CreateClient(defaultProcessorName);
-            var httpFallback = factory.CreateClient(fallbackProcessorName);
-
-            var currentProcessor = defaultProcessorName;
-            var success = false;
-            var requestedAt = DateTimeOffset.UtcNow;
-            var redisDb = redis.GetDatabase();
-            await limiter.RunAsync(async (ct) =>
+        using var ms = new MemoryStream();
+        await context.Request.Body.CopyToAsync(ms);
+        var rawBody = ms.ToArray();
+        _ = Task.Run(async () =>
             {
-                await blockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
-                var response = await httpDefault.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
-                (
-                    request.Amount,
-                    requestedAt,
-                    request.CorrelationId
-                ), JsonContext.Default.ProcessorPaymentRequest).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode)
-                {
-
-                    await blockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
-                    requestedAt = DateTimeOffset.UtcNow;
-                    response = await httpFallback.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
-                    (
-                        request.Amount,
-                        requestedAt,
-                        request.CorrelationId
-                    ), JsonContext.Default.ProcessorPaymentRequest).ConfigureAwait(false);
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        Console.WriteLine($"[DefaultProcessor] Payment not processed successfully for {request.CorrelationId}");
-                    }
-                    else
-                    {
-                        success = true;
-                    }
-                    currentProcessor = fallbackProcessorName;
-                }
-                else
-                {
-                    success = true;
-                }
-            }).ConfigureAwait(false);
-
-            if (!success)
-            {
-                return;
-            }
-            var parameters = new PaymentInsertParameters(
-                CorrelationId: request.CorrelationId,
-                Processor: currentProcessor,
-                Amount: request.Amount,
-                RequestedAt: requestedAt
-            );
-            await batchInserter.AddAsync(parameters).ConfigureAwait(false);
-        }).ConfigureAwait(false);
-
+                var db = redis.GetDatabase();
+                var sub = redis.GetSubscriber();
+                await db.ListRightPushAsync("task-queue", rawBody, flags: StackExchange.Redis.CommandFlags.FireAndForget).ConfigureAwait(false);
+                await sub.PublishAsync(RedisChannel.Literal("task-notify"), "", StackExchange.Redis.CommandFlags.FireAndForget).ConfigureAwait(false);
+            });
         return Results.Accepted();
     });
 
@@ -455,6 +400,7 @@ public record PaymentRequest(
     decimal Amount
 );
 
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(ProcessorPaymentRequest))]
 [JsonSerializable(typeof(PaymentRequest))]
 [JsonSerializable(typeof(PaymentSummaryResponse))]
