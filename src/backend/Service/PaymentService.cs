@@ -25,12 +25,8 @@ public class PaymentService
     public async Task ProcessPaymentAsync(string message)
     {
         var request = JsonSerializer.Deserialize(message, JsonContext.Default.ProcessorPaymentRequest);
-
-        var currentProcessor = defaultProcessorName;
-        var success = false;
         var requestedAt = DateTimeOffset.UtcNow;
         var redisDb = Redis.GetDatabase();
-        var sub = Redis.GetSubscriber();
         await BlockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
         var response = await HttpDefault.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
         (
@@ -41,18 +37,11 @@ public class PaymentService
         if (!response.IsSuccessStatusCode)
         {
             await redisDb.ListRightPushAsync("task-queue", message, flags: CommandFlags.FireAndForget).ConfigureAwait(false);
-        }
-        else
-        {
-            success = true;
-        }
-        if (!success)
-        {
             return;
         }
         var parameters = new PaymentInsertParameters(
             CorrelationId: request.CorrelationId,
-            Processor: currentProcessor,
+            Processor: defaultProcessorName,
             Amount: request.Amount,
             RequestedAt: requestedAt
         );
