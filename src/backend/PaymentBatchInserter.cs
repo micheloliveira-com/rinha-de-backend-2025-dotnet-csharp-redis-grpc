@@ -28,7 +28,7 @@ public class PaymentBatchInserter
 
         if (Buffer.Count >= BatchSize)
         {
-            Console.WriteLine($"[Batch] Buffer reached batch size ({BatchSize}). Flushing batch...");
+            //Console.WriteLine($"[Batch] Buffer reached batch size ({BatchSize}). Flushing batch...");
             return await FlushBatchAsync().ConfigureAwait(false);
         }
         return 0;
