@@ -227,12 +227,11 @@ subscriber.Subscribe(
                 var db = redis.GetDatabase();
                 var sub = redis.GetSubscriber();
                 await db.ListRightPushAsync("task-queue", rawBody, flags: StackExchange.Redis.CommandFlags.FireAndForget).ConfigureAwait(false);
-                await sub.PublishAsync(RedisChannel.Literal("task-notify"), "", StackExchange.Redis.CommandFlags.FireAndForget).ConfigureAwait(false);
             });
         return Results.Accepted();
     });
 
-    apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to, IDbConnection conn, AdaptativeLimiter limiter, IConnectionMultiplexer redisConn,
+    apiGroup.MapGet("/payments-summary", async ([FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to, IDbConnection conn, IConnectionMultiplexer redisConn,
     [FromKeyedServices("channel:busy:http")] AsyncBlockingGate channelBlockingGate,
     [FromKeyedServices("channel:busy:postgres")] AsyncBlockingGate postgresChannelBlockingGate) =>
     {
@@ -303,10 +302,6 @@ subscriber.Subscribe(
 
     app.Run();
 
-    static async Task LockChecks(IDatabase redisDb, AsyncBlockingGate blockingGate)
-    {
-        await blockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
-    }
 public sealed record ProcessorPaymentRequest(
     decimal Amount,
     DateTimeOffset RequestedAt,
