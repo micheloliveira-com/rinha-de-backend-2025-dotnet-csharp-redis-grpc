@@ -68,19 +68,6 @@ builder.Services.AddHttpClient(defaultProcessorName, o =>
     })
     .AddHttpMessageHandler<CountingHandler>();
 
-builder.Services.AddHttpClient(fallbackProcessorName, o =>
-    o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(fallbackProcessorName)!))
-    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-    {
-        MaxConnectionsPerServer = int.MaxValue, // Remove connection limit
-        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
-        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
-        EnableMultipleHttp2Connections = true, // Helps with HTTP/2
-        ConnectTimeout = TimeSpan.FromSeconds(5),
-        AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
-    })
-    .AddHttpMessageHandler<CountingHandler>();
-
 builder.Services.AddTransient<IDbConnection>(sp =>
     new NpgsqlConnection(builder.Configuration.GetConnectionString("postgres")));
 
