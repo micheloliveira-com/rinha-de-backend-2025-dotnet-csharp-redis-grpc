@@ -86,11 +86,6 @@ builder.Services.AddTransient<IDbConnection>(sp =>
 
 builder.Services.AddTransient<CountingHandler>();
 
-builder.Services.AddSingleton(_ =>
-{
-    return new AdaptativeLimiter(minLimitCount: 1, maxLimitCount: 10);
-});
-
 builder.Services.AddSingleton<BusyInstanceTracker>();
 builder.Services.AddKeyedSingleton("tracker:postgres", (sp, _) =>
 {
