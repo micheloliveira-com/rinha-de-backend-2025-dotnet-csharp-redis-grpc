@@ -143,14 +143,6 @@ builder.Services.AddSingleton(_ =>
 {
     return new AdaptativeLimiter(minLimitCount: 1, maxLimitCount: 10);
 });
-builder.Services.AddKeyedSingleton("postgres", (_, _) =>
-{
-    return new AdaptativeLimiter(minLimitCount: 100, maxLimitCount: 500);
-});
-builder.Services.AddKeyedSingleton("worker", (_, _) =>
-{
-    return new AdaptativeLimiter(minLimitCount: 500, maxLimitCount: 1000);
-});
 
 builder.Services.AddSingleton<BusyInstanceTracker>();
 builder.Services.AddKeyedSingleton("tracker:postgres", (sp, _) =>
