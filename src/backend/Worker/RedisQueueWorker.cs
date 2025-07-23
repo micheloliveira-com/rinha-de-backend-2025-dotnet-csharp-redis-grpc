@@ -69,8 +69,11 @@ public class RedisQueueWorker : BackgroundService
                 }
 
                 await RunLockedAsync(ReleasePendingSemaphoreIfPossible).ConfigureAwait(false);
-
-                await _notifySignal.WaitAsync(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
+                int currentPending = Volatile.Read(ref _pendingWorkCount);
+                if (currentPending == 0)
+                {
+                    await _notifySignal.WaitAsync(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
+                }
             }
             catch (Exception ex)
             {

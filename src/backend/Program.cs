@@ -307,7 +307,7 @@ subscriber.Subscribe(
             {
                 await postgresChannelBlockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
                 await channelBlockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
-            }, timeout: TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+            }, timeout: TimeSpan.FromSeconds(1.3)).ConfigureAwait(false);
 
             const string sql = @"
             SELECT processor,
