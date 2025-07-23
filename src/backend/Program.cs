@@ -15,45 +15,6 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 [module: DapperAot]
 
-static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(IDatabase redisDb, AsyncBlockingGate blockingGate)
-{
-    return HttpPolicyExtensions
-        .HandleTransientHttpError()
-        .WaitAndRetryAsync(
-            7,
-            sleepDurationProvider: _ => TimeSpan.Zero,
-            onRetryAsync: async (outcome, timespan, retryCount, context) =>
-            {
-                var sw = Stopwatch.StartNew();
-                await LockChecks(redisDb, blockingGate).ConfigureAwait(false);
-                var remaining = TimeSpan.FromMilliseconds(10 * Math.Pow(2, retryCount - 1)) - sw.Elapsed;
-                if (remaining > TimeSpan.Zero)
-                    await Task.Delay(remaining).ConfigureAwait(false);
-                await LockChecks(redisDb, blockingGate).ConfigureAwait(false);
-            });
-}
-
-static IAsyncPolicy<HttpResponseMessage> GetFallbackRetryPolicy(IDatabase redisDb, AsyncBlockingGate blockingGate)
-{
-    var retryPolicy = HttpPolicyExtensions
-        .HandleTransientHttpError()
-        .WaitAndRetryForeverAsync(
-            sleepDurationProvider: _ => TimeSpan.Zero,
-            onRetryAsync: async (outcome, timespan, context) =>
-            {
-                var sw = Stopwatch.StartNew();
-                await LockChecks(redisDb, blockingGate).ConfigureAwait(false);
-                var remaining = TimeSpan.FromMilliseconds(10) - sw.Elapsed;
-                if (remaining > TimeSpan.Zero)
-                    await Task.Delay(remaining).ConfigureAwait(false);
-                await LockChecks(redisDb, blockingGate).ConfigureAwait(false);
-            });
-
-    var timeoutPolicy = Policy.TimeoutAsync<HttpResponseMessage>(TimeSpan.FromMinutes(1));
-
-    return Policy.WrapAsync(retryPolicy, timeoutPolicy);
-}
-
 const string defaultProcessorName = "default";
 const string fallbackProcessorName = "fallback";
 
@@ -105,13 +66,6 @@ builder.Services.AddHttpClient(defaultProcessorName, o =>
         ConnectTimeout = TimeSpan.FromSeconds(5),
         AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
     })
-    .AddPolicyHandler((sp, req) =>
-    {
-        var redis = sp.GetRequiredService<IConnectionMultiplexer>();
-        var gate = sp.GetRequiredService<AsyncBlockingGate>();
-        var db = redis.GetDatabase();
-        return GetRetryPolicy(db, gate);
-    })
     .AddHttpMessageHandler<CountingHandler>();
 
 builder.Services.AddHttpClient(fallbackProcessorName, o =>
@@ -124,13 +78,6 @@ builder.Services.AddHttpClient(fallbackProcessorName, o =>
         EnableMultipleHttp2Connections = true, // Helps with HTTP/2
         ConnectTimeout = TimeSpan.FromSeconds(5),
         AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
-    })
-    .AddPolicyHandler((sp, req) =>
-    {
-        var redis = sp.GetRequiredService<IConnectionMultiplexer>();
-        var gate = sp.GetRequiredService<AsyncBlockingGate>();
-        var db = redis.GetDatabase();
-        return GetFallbackRetryPolicy(db, gate);
     })
     .AddHttpMessageHandler<CountingHandler>();
 

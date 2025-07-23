@@ -39,6 +39,7 @@ public class PaymentService
         var success = false;
         var requestedAt = DateTimeOffset.UtcNow;
         var redisDb = Redis.GetDatabase();
+        var sub = Redis.GetSubscriber();
         await Limiter.RunAsync(async (ct) =>
         {
             await BlockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
@@ -50,24 +51,27 @@ public class PaymentService
             ), JsonContext.Default.ProcessorPaymentRequest).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
+                await redisDb.ListRightPushAsync("task-queue", message, flags: StackExchange.Redis.CommandFlags.FireAndForget).ConfigureAwait(false);
+                await sub.PublishAsync(RedisChannel.Literal("task-notify"), "", StackExchange.Redis.CommandFlags.FireAndForget).ConfigureAwait(false);
 
-                await BlockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
-                requestedAt = DateTimeOffset.UtcNow;
-                response = await HttpFallback.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
-                (
-                    request.Amount,
-                    requestedAt,
-                    request.CorrelationId
-                ), JsonContext.Default.ProcessorPaymentRequest).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode)
-                {
-                    Console.WriteLine($"[DefaultProcessor] Payment not processed successfully for {request.CorrelationId}");
-                }
-                else
-                {
-                    success = true;
-                }
-                currentProcessor = fallbackProcessorName;
+/*
+                                                await BlockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
+                                                requestedAt = DateTimeOffset.UtcNow;
+                                                response = await HttpFallback.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
+                                                (
+                                                    request.Amount,
+                                                    requestedAt,
+                                                    request.CorrelationId
+                                                ), JsonContext.Default.ProcessorPaymentRequest).ConfigureAwait(false);
+                                                if (!response.IsSuccessStatusCode)
+                                                {
+                                                    Console.WriteLine($"[DefaultProcessor] Payment not processed successfully for {request.CorrelationId}");
+                                                }
+                                                else
+                                                {
+                                                    success = true;
+                                                }
+                                                currentProcessor = fallbackProcessorName;*/
             }
             else
             {
