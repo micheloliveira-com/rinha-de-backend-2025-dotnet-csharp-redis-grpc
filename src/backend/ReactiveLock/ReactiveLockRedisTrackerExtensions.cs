@@ -35,7 +35,7 @@ public static class ReactiveLockRedisTrackerExtensions
     }
 
 
-    public static async Task UseDistributedRedisReactiveLock(this IApplicationBuilder app)
+    public static async Task UseDistributedRedisReactiveLockAsync(this IApplicationBuilder app)
     {
         var redis = app.ApplicationServices.GetRequiredService<IConnectionMultiplexer>();
         var redisDb = redis.GetDatabase();
@@ -48,7 +48,7 @@ public static class ReactiveLockRedisTrackerExtensions
             var factory = app.ApplicationServices.GetRequiredService<IReactiveLockTrackerFactory>();
             var state = factory.GetTrackerState(lockKey);
             var controller = factory.GetTrackerController(lockKey);
-            await controller.DecrementAsync();
+            await controller.DecrementAsync().ConfigureAwait(false);
             subscriber.Subscribe(RedisChannel.Literal(redisHashSetNotifierSubscriptionKey), (channel, message) =>
             {
                 _ = Task.Run(async () =>

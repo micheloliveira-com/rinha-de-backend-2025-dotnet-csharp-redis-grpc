@@ -33,7 +33,7 @@ public class ReactiveLockTrackerController : IReactiveLockTrackerController
         var newCount = Interlocked.Increment(ref _inFlightRequestCount);
         if (newCount == 1)
         {
-            await Store.SetStatusAsync(Hostname, true);
+            await Store.SetStatusAsync(Hostname, true).ConfigureAwait(false);
         }
     }
 
@@ -43,7 +43,7 @@ public class ReactiveLockTrackerController : IReactiveLockTrackerController
         if (afterCount <= 0)
         {
             Interlocked.Exchange(ref _inFlightRequestCount, 0);
-            await Store.SetStatusAsync(Hostname, false);
+            await Store.SetStatusAsync(Hostname, false).ConfigureAwait(false);
         }
     }
 }
