@@ -13,17 +13,18 @@ public class PaymentBatchInserter
     private int BatchSize { get; } = 100;
 
     private IDbConnection DbConnection { get; }
-    private BusyInstanceTracker Tracker { get; }
+    private IReactiveLockTrackerController ReactiveLockTrackerController { get; }
 
-    public PaymentBatchInserter(IDbConnection dbConnection, [FromKeyedServices("tracker:postgres")] BusyInstanceTracker tracker)
+    public PaymentBatchInserter(IDbConnection dbConnection,
+    IReactiveLockTrackerFactory reactiveLockTrackerFactory)
     {
         DbConnection = dbConnection ?? throw new ArgumentNullException(nameof(dbConnection));
-        Tracker = tracker ?? throw new ArgumentNullException(nameof(tracker));
+        ReactiveLockTrackerController = reactiveLockTrackerFactory.GetTrackerController("postgres");
     }
 
     public async Task<int> AddAsync(PaymentInsertParameters payment)
     {
-        await Tracker.IncrementAsync().ConfigureAwait(false);
+        await ReactiveLockTrackerController.IncrementAsync().ConfigureAwait(false);
         Buffer.Enqueue(payment);
 
         if (Buffer.Count >= BatchSize)
@@ -92,7 +93,7 @@ public class PaymentBatchInserter
 
             totalInserted += batch.Count;
 
-            await Tracker.DecrementAsync(batch.Count).ConfigureAwait(false);
+            await ReactiveLockTrackerController.DecrementAsync(batch.Count).ConfigureAwait(false);
         }
 
         totalStopwatch.Stop();

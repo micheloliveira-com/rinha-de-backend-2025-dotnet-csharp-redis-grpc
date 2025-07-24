@@ -6,19 +6,19 @@ public class PaymentService
     const string defaultProcessorName = "default";
     private IConnectionMultiplexer Redis { get; }
     private PaymentBatchInserter BatchInserter { get; }
-    private AsyncBlockingGate BlockingGate { get; }
+    private IReactiveLockTrackerState ReactiveLockTrackerState { get; }
     private HttpClient HttpDefault { get; }
 
     public PaymentService(
         IHttpClientFactory factory,
         IConnectionMultiplexer redis,
         PaymentBatchInserter batchInserter,
-        AsyncBlockingGate blockingGate
+        IReactiveLockTrackerFactory reactiveLockTrackerFactory
     )
     {
         Redis = redis;
         BatchInserter = batchInserter;
-        BlockingGate = blockingGate;
+        ReactiveLockTrackerState = reactiveLockTrackerFactory.GetTrackerState("api:payments-summary");
 
         HttpDefault = factory.CreateClient(defaultProcessorName);
     }
@@ -27,7 +27,7 @@ public class PaymentService
         var request = JsonSerializer.Deserialize(message, JsonContext.Default.ProcessorPaymentRequest);
         var requestedAt = DateTimeOffset.UtcNow;
         var redisDb = Redis.GetDatabase();
-        await BlockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
+        await ReactiveLockTrackerState.WaitIfBlockedAsync().ConfigureAwait(false);
         var response = await HttpDefault.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
         (
             request.Amount,

@@ -11,16 +11,16 @@ using System.Net;
 
 public class CountingHandler : DelegatingHandler
 {
-    private readonly BusyInstanceTracker _tracker;
+    private IReactiveLockTrackerController ReactiveLockTrackerController { get; set; }
 
-    public CountingHandler(BusyInstanceTracker tracker)
+    public CountingHandler(IReactiveLockTrackerFactory reactiveLockTrackerFactory)
     {
-        _tracker = tracker ?? throw new ArgumentNullException(nameof(tracker));
+        ReactiveLockTrackerController = reactiveLockTrackerFactory.GetTrackerController("http");
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        await _tracker.IncrementAsync().ConfigureAwait(false);
+        await ReactiveLockTrackerController.IncrementAsync().ConfigureAwait(false);
 
         try
         {
@@ -28,7 +28,7 @@ public class CountingHandler : DelegatingHandler
         }
         finally
         {
-            await _tracker.DecrementAsync().ConfigureAwait(false);
+            await ReactiveLockTrackerController.DecrementAsync().ConfigureAwait(false);
         }
     }
 }
