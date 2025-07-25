@@ -84,6 +84,8 @@ if (builder.Environment.IsProduction())
     builder.Logging.ClearProviders();
     builder.Logging.SetMinimumLevel(LogLevel.Error);
 }
+builder.Services.InitializeDistributedRedisReactiveLock(Dns.GetHostName());
+
 builder.Services.AddDistributedRedisReactiveLock("http");
 builder.Services.AddDistributedRedisReactiveLock("postgres");
 builder.Services.AddDistributedRedisReactiveLock("api:payments-summary", [
