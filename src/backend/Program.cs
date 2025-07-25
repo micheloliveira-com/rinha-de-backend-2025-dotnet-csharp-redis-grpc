@@ -1,4 +1,7 @@
 using Dapper;
+using MichelOliveira.Com.ReactiveLock.Core;
+using MichelOliveira.Com.ReactiveLock.DependencyInjection;
+using MichelOliveira.Com.ReactiveLock.Distributed.Redis;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
@@ -112,7 +115,7 @@ builder.Services.AddDistributedRedisReactiveLock("api:payments-summary", [
 
 var app = builder.Build();
 
-await app.UseDistributedRedisReactiveLockAsync();
+await app.Services.UseDistributedRedisReactiveLockAsync();
 
 var apiGroup = app.MapGroup("/");
 apiGroup.MapGet("/", () => Results.Ok());

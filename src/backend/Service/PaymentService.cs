@@ -1,4 +1,6 @@
 using System.Text.Json;
+using MichelOliveira.Com.ReactiveLock.Core;
+using MichelOliveira.Com.ReactiveLock.DependencyInjection;
 using StackExchange.Redis;
 
 public class PaymentService
