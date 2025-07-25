@@ -115,7 +115,7 @@ builder.Services.AddDistributedRedisReactiveLock("api:payments-summary", [
 
 var app = builder.Build();
 
-await app.Services.UseDistributedRedisReactiveLockAsync();
+await app.UseDistributedRedisReactiveLockAsync();
 
 var apiGroup = app.MapGroup("/");
 apiGroup.MapGet("/", () => Results.Ok());
