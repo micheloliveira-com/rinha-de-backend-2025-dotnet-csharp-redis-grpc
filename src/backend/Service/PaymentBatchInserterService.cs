@@ -9,7 +9,7 @@ using MichelOliveira.Com.ReactiveLock.Core;
 using MichelOliveira.Com.ReactiveLock.DependencyInjection;
 using Npgsql;
 
-public class PaymentBatchInserter
+public class PaymentBatchInserterService
 {
     private ConcurrentQueue<PaymentInsertParameters> Buffer { get; } = new();
     private int BatchSize { get; } = 100;
@@ -17,7 +17,7 @@ public class PaymentBatchInserter
     private IDbConnection DbConnection { get; }
     private IReactiveLockTrackerController ReactiveLockTrackerController { get; }
 
-    public PaymentBatchInserter(IDbConnection dbConnection,
+    public PaymentBatchInserterService(IDbConnection dbConnection,
     IReactiveLockTrackerFactory reactiveLockTrackerFactory)
     {
         DbConnection = dbConnection ?? throw new ArgumentNullException(nameof(dbConnection));
