@@ -1,6 +1,6 @@
 services:
   backend-1:
-    image: ${DOCKER_REGISTRY-}backend
+    image: ghcr.io/micheloliveira-com/rinha-de-backend-2025-dotnet-csharp-postgres:latest
     container_name: backend-1
     hostname: backend-1
     networks:
@@ -30,7 +30,7 @@ services:
           cpus: "0.5"
           memory: "80MB"
   backend-2:
-    image: ${DOCKER_REGISTRY-}backend
+    image: ghcr.io/micheloliveira-com/rinha-de-backend-2025-dotnet-csharp-postgres:latest
     container_name: backend-2
     hostname: backend-2
     networks:
