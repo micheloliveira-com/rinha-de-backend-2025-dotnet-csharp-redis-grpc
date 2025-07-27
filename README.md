@@ -12,6 +12,7 @@ PS: Nem todas as implementações feitas neste projeto são recomendadas para ce
 - **Dapper + Dapper.AOT** - ORM leve e compatível com AOT
 - **Polly** - Política de retry resiliente para conexões externas
 - **Nginx** - Proxy reverso para balanceamento de carga entre as duas instâncias
+- **Docker Compose** - 1.5 CPU e 350MB de RAM no total, conforme as regras da [Rinha de Backend 2025](https://github.com/zanfranceschi/rinha-de-backend-2025)
 
 ```mermaid
 
@@ -77,12 +78,27 @@ graph TD
 ## Como rodar
 
 ### Subir a stack com Docker Compose
-Esse comando irá compilar a aplicação em AOT e subir Redis, PostgreSQL e NGINX para uso local.
+1- Neste repositório, esse comando irá compilar a aplicação em AOT e subir Redis, PostgreSQL e NGINX para uso local.
 ```bash
 cd src
 docker compose build --no-cache
 docker compose up -d
 ```
+2- Instalar o K6:
+[Instruções aqui](https://grafana.com/docs/k6/latest/set-up/install-k6/)
+
+3- Clonar o repo da [Rinha de Backend 2025](https://github.com/zanfranceschi/rinha-de-backend-2025) para subir a api de processamento de pagamentos:
+```bash
+cd payment-processor
+docker compose up -d
+```
+4- Com o K6 instalado, rodar o teste:
+```bash
+cd rinha-test
+k6 run -e MAX_REQUESTS=550 rinha.js
+```
+
+Instruções, atualizadas em 2025-07-27 do [MINIGUIA - Rinha de Backend 2025](https://github.com/zanfranceschi/rinha-de-backend-2025/blob/main/rinha-test/MINIGUIA.md)
 
 ## Licença
 
