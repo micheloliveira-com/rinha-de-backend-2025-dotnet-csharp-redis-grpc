@@ -3,7 +3,9 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    image: rinha-de-backend-2025-dotnet-csharp-postgres:latest
   backend-2:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    image: rinha-de-backend-2025-dotnet-csharp-postgres:latest
