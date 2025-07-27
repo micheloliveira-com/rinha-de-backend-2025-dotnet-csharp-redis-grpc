@@ -82,7 +82,7 @@ graph TD
 
 [Instruções aqui](https://docs.docker.com/get-started/get-docker/)
 
-#### 1. Neste repositório, esse comando irá compilar a aplicação em AOT e subir Redis, PostgreSQL e NGINX para uso local:
+#### 1. Neste repositório, esses comandos irão compilar a aplicação em AOT e subir Redis, PostgreSQL e NGINX para uso local:
 ```bash
 cd src
 docker compose build --no-cache
@@ -92,12 +92,12 @@ docker compose up -d
 
 [Instruções aqui](https://grafana.com/docs/k6/latest/set-up/install-k6/)
 
-#### 3. Clonar o repo da [Rinha de Backend 2025](https://github.com/zanfranceschi/rinha-de-backend-2025) para subir a api de processamento de pagamentos:
+#### 3. Clonar o repositório da [Rinha de Backend 2025](https://github.com/zanfranceschi/rinha-de-backend-2025) para subir a api de processamento de pagamentos e executar os seguintes comandos:
 ```bash
 cd payment-processor
 docker compose up -d
 ```
-#### 4. Com o K6 instalado, rodar o teste:
+#### 4. Com o K6 instalado, rodar o teste com o seguinte comando dentro do repositório da [Rinha de Backend 2025](https://github.com/zanfranceschi/rinha-de-backend-2025):
 ```bash
 cd rinha-test
 k6 run -e MAX_REQUESTS=550 rinha.js
