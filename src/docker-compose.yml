@@ -13,11 +13,15 @@ services:
       - ConnectionStrings__postgres=Host=backend-db;Port=5432;Database=backend-db;Username=postgres;Password=postgres;Pooling=true;Maximum Pool Size=200;Multiplexing=true;Timeout=15;Command Timeout=15;Cancellation Timeout=-1;No Reset On Close=true;Max Auto Prepare=20;Auto Prepare Min Usages=1;
       - ConnectionStrings__redis=redis:6379
     healthcheck:
-      test: wget -q --spider http://localhost:8080/ || exit 1
-      interval: 1s
-      timeout: 3s
-      retries: 60
-      start_period: 0s
+      test: >
+        for i in $(seq 1 60); do
+          wget -q --tries=1 --spider http://localhost:8080/ && break
+          sleep 1
+        done
+      interval: 1h
+      timeout: 70s
+      retries: 0
+      start_period: 1s
     ports:
       - "8080"
     deploy:
@@ -39,11 +43,15 @@ services:
       - ConnectionStrings__postgres=Host=backend-db;Port=5432;Database=backend-db;Username=postgres;Password=postgres;Pooling=true;Maximum Pool Size=200;Multiplexing=true;Timeout=15;Command Timeout=15;Cancellation Timeout=-1;No Reset On Close=true;Max Auto Prepare=20;Auto Prepare Min Usages=1;
       - ConnectionStrings__redis=redis:6379
     healthcheck:
-      test: wget -q --spider http://localhost:8080/ || exit 1
-      interval: 1s
-      timeout: 3s
-      retries: 60
-      start_period: 0s
+      test: >
+        for i in $(seq 1 60); do
+          wget -q --tries=1 --spider http://localhost:8080/ && break
+          sleep 1
+        done
+      interval: 1h
+      timeout: 70s
+      retries: 0
+      start_period: 1s
     ports:
       - "8080"
     deploy:
