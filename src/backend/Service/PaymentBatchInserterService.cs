@@ -50,8 +50,6 @@ public class PaymentBatchInserterService
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync().ConfigureAwait(false);
 
-        var totalStopwatch = Stopwatch.StartNew();
-
         while (!Buffer.IsEmpty)
         {
             var batch = new List<PaymentInsertParameters>(Constant.POSTGRES_BATCH_SIZE);
@@ -91,8 +89,6 @@ public class PaymentBatchInserterService
 
             await ReactiveLockTrackerController.DecrementAsync(batch.Count).ConfigureAwait(false);
         }
-
-        totalStopwatch.Stop();
 
         return totalInserted;
     }
