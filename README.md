@@ -16,18 +16,18 @@ PS: Nem todas as implementações feitas neste projeto são recomendadas para ce
 ```mermaid
 
 graph TD
-  loadBalancer["Load Balancer (Nginx)"]
+  loadBalancer["<b>Load Balancer</b><br />(NGINX 1.29.0-alpine)"]
 
   subgraph backendsGroup["<b>BACKENDS</b>"]
-    backend1["Backend-1 (.NET 9)"]
-    backend2["Backend-2 (.NET 9)"]
+    backend1["<b>Backend-1</b><br />(.NET 9.0-alpine)"]
+    backend2["<b>Backend-2</b><br />(.NET 9.0-alpine)"]
     reactiveLock["<b>Lock Distribuído</b><br/>(lib <b>ReactiveLock</b> para sincronia entre processos<br/>HTTP, PostGres, API de Sumário)"]
   end
 
   subgraph storageGroup["<b>ARMAZENAMENTO E MENSAGERIA</b>"]
-    postgres["PostgreSQL (postgres:17-alpine)"]
+    postgres["<b>PostgreSQL</b><br />(postgres:17-alpine)"]
     spacer[" "]:::invisible
-    redis["Redis (redis:8-alpine)"]
+    redis["<b>Redis</b><br />(redis:8-alpine)"]
   end
 
   loadBalancer --> backendsGroup
