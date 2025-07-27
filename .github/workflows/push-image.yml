@@ -5,6 +5,7 @@ on:
 
 env:
   IMAGE_NAME: rinha-de-backend-2025-dotnet-csharp-postgres
+  SOURCE_FOLDER: src
 
 jobs:
   docker:
@@ -27,6 +28,7 @@ jobs:
 
       - name: Build Docker image
         run: |
+          cd ${{ env.SOURCE_FOLDER }}
           docker build -t ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest .
 
       - name: Push Docker image
