@@ -29,6 +29,16 @@ var warmupRetryPolicy = Policy
             Console.WriteLine($"Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
         });
 
+var warmupAsyncRetryPolicy = Policy
+    .Handle<Exception>()
+    .WaitAndRetryAsync(
+        retryCount: 60,
+        sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
+        onRetry: (exception, timeSpan, retryCount, context) =>
+        {
+            Console.WriteLine($"Async Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
+        });
+
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 {
     var configuration = builder.Configuration.GetConnectionString("redis")!;
@@ -96,12 +106,20 @@ var app = builder.Build();
 
 await app.UseDistributedRedisReactiveLockAsync();
 
-await warmupRetryPolicy.Execute(async () =>
+await warmupAsyncRetryPolicy.ExecuteAsync(async () =>
 {
     using var scope = app.Services.CreateScope();
     Console.WriteLine("[Postgres] Attempting warmup connection...");
-    var db = scope.ServiceProvider.GetRequiredService<IDbConnection>();
-    await db.ExecuteAsync("SELECT 1;");
+    
+    var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+    var connString = configuration.GetConnectionString("postgres");
+
+    await using var connection = new NpgsqlConnection(connString);
+    await connection.OpenAsync();
+
+    await using var command = new NpgsqlCommand("SELECT 1;", connection);
+    await command.ExecuteNonQueryAsync();
+
     Console.WriteLine("[Postgres] Connection warmup successful.");
 });
 

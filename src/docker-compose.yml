@@ -1,7 +1,6 @@
 services:
   backend-1:
     image: ghcr.io/micheloliveira-com/rinha-de-backend-2025-dotnet-csharp-postgres:latest
-    container_name: backend-1
     hostname: backend-1
     networks:
       - backend
@@ -31,7 +30,6 @@ services:
           memory: "80MB"
   backend-2:
     image: ghcr.io/micheloliveira-com/rinha-de-backend-2025-dotnet-csharp-postgres:latest
-    container_name: backend-2
     hostname: backend-2
     networks:
       - backend
@@ -71,7 +69,7 @@ services:
     networks:
       - backend
     ports:
-      - "6379:6379"
+      - "6379"
     deploy:
       resources:
         limits:
@@ -89,7 +87,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_DB=backend-db
     ports:
-      - "5432:5432" 
+      - "5432" 
     deploy:
       resources:
         limits:
