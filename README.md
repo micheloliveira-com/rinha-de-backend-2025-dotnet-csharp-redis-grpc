@@ -21,12 +21,13 @@ graph TD
   subgraph backendsGroup["<b>BACKENDS</b>"]
     backend1["Backend-1 (.NET 9)"]
     backend2["Backend-2 (.NET 9)"]
-    reactiveLock["Lock Distribuído<br/>(ReactiveLock)"]
+    reactiveLock["<b>Lock Distribuído</b><br/>(lib ReactiveLock para<br/>HTTP, PostGres, API de Sumário)"]
   end
 
   subgraph storageGroup["<b>ARMAZENAMENTO E MENSAGERIA</b>"]
     postgres["PostgreSQL (postgres:17-alpine)"]
     redis["Redis (redis:8-alpine)"]
+    spacer[" "]:::invisible
   end
 
   loadBalancer --> backendsGroup
@@ -39,6 +40,8 @@ graph TD
 
   reactiveLock --> storageGroup
 
+  classDef invisible fill:none,stroke:none;
+
   %% Estilos de cor
   style loadBalancer fill:#256D85,stroke:#1B4B57,stroke-width:2px,color:#FFFFFF
 
@@ -50,6 +53,7 @@ graph TD
   style storageGroup fill:#a8d5a2,stroke:#333,stroke-width:2px,color:#000
   style postgres fill:#c6e0b4,stroke:#333,stroke-width:1px,color:#000
   style redis fill:#c6e0b4,stroke:#333,stroke-width:1px,color:#000
+  
 
 ```
 
