@@ -26,8 +26,8 @@ graph TD
 
   subgraph storageGroup["<b>ARMAZENAMENTO E MENSAGERIA</b>"]
     postgres["PostgreSQL (postgres:17-alpine)"]
-    redis["Redis (redis:8-alpine)"]
     spacer[" "]:::invisible
+    redis["Redis (redis:8-alpine)"]
   end
 
   loadBalancer --> backendsGroup
