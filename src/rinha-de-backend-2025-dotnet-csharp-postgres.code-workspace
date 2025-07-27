@@ -3,7 +3,7 @@
 		{ "path": "../" }
 	],
 	"settings": {
-		"dotnet.defaultSolution": "rinha-de-backend-2025-dotnet-csharp.sln",
-		"terminal.integrated.cwd": "${workspaceFolder}/src"
+		"dotnet.defaultSolution": "${workspaceFolder}/src/rinha-de-backend-2025-dotnet-csharp.sln",
+		"terminal.integrated.cwd": "${workspaceFolder}/src/backend"
 	}
 }
