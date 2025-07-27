@@ -21,7 +21,7 @@ graph TD
   subgraph backendsGroup["<b>BACKENDS</b>"]
     backend1["Backend-1 (.NET 9)"]
     backend2["Backend-2 (.NET 9)"]
-    reactiveLock["<b>Lock Distribuído</b><br/>(lib ReactiveLock para<br/>HTTP, PostGres, API de Sumário)"]
+    reactiveLock["<b>Lock Distribuído</b><br/>(lib <b>ReactiveLock</b> para sincronia entre processos<br/>HTTP, PostGres, API de Sumário)"]
   end
 
   subgraph storageGroup["<b>ARMAZENAMENTO E MENSAGERIA</b>"]
