@@ -18,39 +18,38 @@ PS: Nem todas as implementações feitas neste projeto são recomendadas para ce
 graph TD
   loadBalancer["Load Balancer (Nginx)"]
 
-  backendsGroup["<b>BACKENDS</b>"]
-  postgresRedisGroup["<b>ARMAZENAMENTO E MENSAGERIA</b>"]
+  subgraph backendsGroup["<b>BACKENDS</b>"]
+    backend1["Backend-1 (.NET 9)"]
+    backend2["Backend-2 (.NET 9)"]
+    reactiveLock["Lock Distribuído<br/>(ReactiveLock)"]
+  end
 
-  backend1["Backend-1 (.NET 9)"]
-  backend2["Backend-2 (.NET 9)"]
+  subgraph storageGroup["<b>ARMAZENAMENTO E MENSAGERIA</b>"]
+    postgres["PostgreSQL (postgres:17-alpine)"]
+    redis["Redis (redis:8-alpine)"]
+  end
 
-  postgres["PostgreSQL (postgres:17-alpine)"]
-  redis["Redis (redis:8-alpine)"]
-
-  %% Hierarquia e grupos
   loadBalancer --> backendsGroup
-  backendsGroup --> backend1
-  backendsGroup --> backend2
 
-  backend1 --> postgresRedisGroup
-  backend2 --> postgresRedisGroup
+  backend1 --> storageGroup
+  backend2 --> storageGroup
 
-  postgresRedisGroup --> postgres
-  postgresRedisGroup --> redis
+  backend1 --> reactiveLock
+  backend2 --> reactiveLock
+
+  reactiveLock --> storageGroup
 
   %% Estilos de cor
   style loadBalancer fill:#256D85,stroke:#1B4B57,stroke-width:2px,color:#FFFFFF
 
-  %% Backends em azul claro
   style backendsGroup fill:#a8c7ff,stroke:#333,stroke-width:2px,color:#000
   style backend1 fill:#c9ddff,stroke:#333,stroke-width:1px,color:#000
   style backend2 fill:#c9ddff,stroke:#333,stroke-width:1px,color:#000
+  style reactiveLock fill:#f2c14e,stroke:#b8860b,stroke-width:2px,color:#000
 
-  %% Mensageria e armazenamento em verde claro
-  style postgresRedisGroup fill:#a8d5a2,stroke:#333,stroke-width:2px,color:#000
+  style storageGroup fill:#a8d5a2,stroke:#333,stroke-width:2px,color:#000
   style postgres fill:#c6e0b4,stroke:#333,stroke-width:1px,color:#000
   style redis fill:#c6e0b4,stroke:#333,stroke-width:1px,color:#000
-
 
 ```
 
