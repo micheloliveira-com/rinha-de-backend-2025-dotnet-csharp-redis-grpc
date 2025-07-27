@@ -78,13 +78,14 @@ graph TD
 ## Como rodar
 
 ### Subir a stack com Docker Compose
-1- Neste repositório, esse comando irá compilar a aplicação em AOT e subir Redis, PostgreSQL e NGINX para uso local.
+1- Neste repositório, esse comando irá compilar a aplicação em AOT e subir Redis, PostgreSQL e NGINX para uso local:
 ```bash
 cd src
 docker compose build --no-cache
 docker compose up -d
 ```
 2- Instalar o K6:
+
 [Instruções aqui](https://grafana.com/docs/k6/latest/set-up/install-k6/)
 
 3- Clonar o repo da [Rinha de Backend 2025](https://github.com/zanfranceschi/rinha-de-backend-2025) para subir a api de processamento de pagamentos:
