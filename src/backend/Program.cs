@@ -18,8 +18,6 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 [module: DapperAot]
 
-const string defaultProcessorName = "default";
-
 var builder = WebApplication.CreateSlimBuilder(args);
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>

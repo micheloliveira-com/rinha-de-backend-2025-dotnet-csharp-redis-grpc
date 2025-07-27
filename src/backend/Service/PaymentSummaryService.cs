@@ -10,9 +10,6 @@ public class PaymentSummaryService
     private IReactiveLockTrackerFactory LockFactory { get; }
     private PaymentBatchInserterService BatchInserter { get; }
 
-    private const string DefaultProcessorName = "default";
-    private const string FallbackProcessorName = "fallback";
-
     public PaymentSummaryService(
         IDbConnection conn,
         IReactiveLockTrackerFactory lockFactory,
@@ -50,8 +47,8 @@ public class PaymentSummaryService
             ";
             List<PaymentSummaryResult> result = [.. await Conn.QueryAsync<PaymentSummaryResult>(sql, new { from, to }).ConfigureAwait(false)];
 
-            var defaultResult = result?.FirstOrDefault(r => r.Processor == DefaultProcessorName) ?? new PaymentSummaryResult(DefaultProcessorName, 0, 0);
-            var fallbackResult = result?.FirstOrDefault(r => r.Processor == FallbackProcessorName) ?? new PaymentSummaryResult(FallbackProcessorName, 0, 0);
+            var defaultResult = result?.FirstOrDefault(r => r.Processor == Constant.DEFAULT_PROCESSOR_NAME) ?? new PaymentSummaryResult(Constant.DEFAULT_PROCESSOR_NAME, 0, 0);
+            var fallbackResult = result?.FirstOrDefault(r => r.Processor == Constant.FALLBACK_PROCESSOR_NAME) ?? new PaymentSummaryResult(Constant.FALLBACK_PROCESSOR_NAME, 0, 0);
 
             var response = new PaymentSummaryResponse(
                 new PaymentSummary(defaultResult.TotalRequests, defaultResult.TotalAmount),

@@ -7,7 +7,6 @@ using StackExchange.Redis;
 
 public class PaymentService
 {
-    const string defaultProcessorName = "default";
     private IDbConnection Conn { get; }
     private IConnectionMultiplexer Redis { get; }
     private PaymentBatchInserterService BatchInserter { get; }
@@ -27,7 +26,7 @@ public class PaymentService
         BatchInserter = batchInserter;
         ReactiveLockTrackerState = reactiveLockTrackerFactory.GetTrackerState(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME);
 
-        HttpDefault = factory.CreateClient(defaultProcessorName);
+        HttpDefault = factory.CreateClient(Constant.DEFAULT_PROCESSOR_NAME);
     }
 
 
@@ -73,7 +72,7 @@ public class PaymentService
         }
         var parameters = new PaymentInsertParameters(
             CorrelationId: request.CorrelationId,
-            Processor: defaultProcessorName,
+            Processor: Constant.DEFAULT_PROCESSOR_NAME,
             Amount: request.Amount,
             RequestedAt: requestedAt
         );
