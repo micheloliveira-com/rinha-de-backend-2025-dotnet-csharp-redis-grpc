@@ -54,8 +54,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
 });
 
-builder.Services.AddHttpClient(defaultProcessorName, o =>
-    o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(defaultProcessorName)!))
+builder.Services.AddHttpClient(Constant.DEFAULT_PROCESSOR_NAME, o =>
+    o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(Constant.DEFAULT_PROCESSOR_NAME)!))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
     {
         MaxConnectionsPerServer = int.MaxValue,
