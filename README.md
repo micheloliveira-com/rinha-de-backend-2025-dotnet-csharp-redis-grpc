@@ -7,8 +7,8 @@ PS: Nem todas as implementações feitas neste projeto são recomendadas para ce
 ## Stack
 
 - **.NET 9 (AOT)** - Gerando um executável nativo
-- **ReactiveLock** - Lock distribuído e reativo via Redis para maximinizar a consistência entre as instâncias
-- **PostgreSQL e Redis** - Persistência e enfileiramento de mensagens
+- **[ReactiveLock](https://www.nuget.org/packages/ReactiveLock.Distributed.Redis/)** - Lock distribuído e reativo via Redis para maximinizar a consistência entre as instâncias
+- **PostgreSQL e Redis** - Persistência dos dados e enfileiramento de mensagens
 - **Dapper + Dapper.AOT** - ORM leve e compatível com AOT
 - **Polly** - Política de retry resiliente para conexões externas
 - **Nginx** - Proxy reverso para balanceamento de carga entre as duas instâncias
@@ -67,7 +67,7 @@ graph TD
 
 ## Especificações arquiteturais
 
-- Uso da biblioteca `ReactiveLock` garante consistência máxima entre múltiplas instâncias sem perda de integridade. Esse, por sua vez, também reage e controla o estado de processamento das requisições HTTP, PostgreSQL e API de sumário entre as instâncias.
+- Uso da biblioteca [ReactiveLock](https://www.nuget.org/packages/ReactiveLock.Distributed.Redis/) garante consistência máxima entre múltiplas instâncias sem perda de integridade. Esse, por sua vez, também reage e controla o estado de processamento das requisições HTTP, PostgreSQL e API de sumário entre as instâncias.
 - Utiliza inserção em lote (bulk insert) de 100 registros no `PostgreSQL` para otimizar a performance com consistência sincronizada entre as instâncias.
 - O lock coordenado ocorre especialmente quando a chamada ao endpoint de `GET /payments-summary` é realizada, sincronizando o flush dos lotes do postgres para manter a integridade dos dados antes de realizar a query no banco de dados.
 - O `Redis` utilizado para enfileirar as mensagens recebidas garante um pool consistente e balanceado de workers, diferente do envio das requisições para uma única instância via round robin, que não assegura balanceamento adequado devido à variabilidade no tempo de execução entre as requisições a api de pagamentos.
