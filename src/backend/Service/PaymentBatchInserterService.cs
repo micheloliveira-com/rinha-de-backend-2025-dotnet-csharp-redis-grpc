@@ -12,7 +12,6 @@ using Npgsql;
 public class PaymentBatchInserterService
 {
     private ConcurrentQueue<PaymentInsertParameters> Buffer { get; } = new();
-    private int BatchSize { get; } = 100;
 
     private IDbConnection DbConnection { get; }
     private IReactiveLockTrackerController ReactiveLockTrackerController { get; }
@@ -29,16 +28,13 @@ public class PaymentBatchInserterService
         await ReactiveLockTrackerController.IncrementAsync().ConfigureAwait(false);
         Buffer.Enqueue(payment);
 
-        if (Buffer.Count >= BatchSize)
+        if (Buffer.Count >= Constant.POSTGRES_BATCH_SIZE)
         {
-            //Console.WriteLine($"[Batch] Buffer reached batch size ({BatchSize}). Flushing batch...");
             return await FlushBatchAsync().ConfigureAwait(false);
         }
         return 0;
     }
-
-
-
+    
     public async Task<int> FlushBatchAsync()
     {
         if (Buffer.IsEmpty)
@@ -58,8 +54,8 @@ public class PaymentBatchInserterService
 
         while (!Buffer.IsEmpty)
         {
-            var batch = new List<PaymentInsertParameters>(BatchSize);
-            while (batch.Count < BatchSize && Buffer.TryDequeue(out var item))
+            var batch = new List<PaymentInsertParameters>(Constant.POSTGRES_BATCH_SIZE);
+            while (batch.Count < Constant.POSTGRES_BATCH_SIZE && Buffer.TryDequeue(out var item))
                 batch.Add(item);
 
             if (batch.Count == 0)
@@ -91,16 +87,12 @@ public class PaymentBatchInserterService
 
             batchStopwatch.Stop();
 
-            //Console.WriteLine($"Inserted batch of {batch.Count} records in {batchStopwatch.ElapsedMilliseconds} ms");
-
             totalInserted += batch.Count;
 
             await ReactiveLockTrackerController.DecrementAsync(batch.Count).ConfigureAwait(false);
         }
 
         totalStopwatch.Stop();
-
-        //Console.WriteLine($"Inserted total {totalInserted} records in {totalStopwatch.ElapsedMilliseconds} ms");
 
         return totalInserted;
     }

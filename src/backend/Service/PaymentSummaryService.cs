@@ -9,15 +9,18 @@ public class PaymentSummaryService
     private IDbConnection Conn { get; }
     private IReactiveLockTrackerFactory LockFactory { get; }
     private PaymentBatchInserterService BatchInserter { get; }
+    private ConsoleWriterService ConsoleWriterService { get; }
 
     public PaymentSummaryService(
         IDbConnection conn,
         IReactiveLockTrackerFactory lockFactory,
-        PaymentBatchInserterService batchInserter)
+        PaymentBatchInserterService batchInserter,
+        ConsoleWriterService consoleWriterService)
     {
         Conn = conn;
         LockFactory = lockFactory;
         BatchInserter = batchInserter;
+        ConsoleWriterService = consoleWriterService;
     }
 
     public async Task<IResult> GetPaymentsSummaryAsync(DateTimeOffset? from, DateTimeOffset? to)
@@ -66,7 +69,7 @@ public class PaymentSummaryService
 
     public async Task FlushWhileGateBlockedAsync()
     {
-        Console.WriteLine("[Redis] Gate blocked.");
+        ConsoleWriterService.WriteLine("[Redis] Gate blocked.");
         var state = LockFactory.GetTrackerState(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME);
 
         await state.WaitIfBlockedAsync(
@@ -78,7 +81,7 @@ public class PaymentSummaryService
                     var processedCount = await BatchInserter.FlushBatchAsync().ConfigureAwait(false);
                     if (processedCount > 0)
                     {
-                        Console.WriteLine($"[Redis] Processed batch with {processedCount} records.");
+                        ConsoleWriterService.WriteLine($"[Redis] Processed batch with {processedCount} records.");
                     }
                 }
                 catch (Exception ex)
@@ -88,7 +91,7 @@ public class PaymentSummaryService
             }).ConfigureAwait(false);
     }
 
-    private static async Task<bool> WaitWithTimeoutAsync(Func<Task> taskFactory, TimeSpan timeout)
+    private async Task<bool> WaitWithTimeoutAsync(Func<Task> taskFactory, TimeSpan timeout)
     {
         var task = taskFactory();
         var timeoutTask = Task.Delay(timeout);
@@ -96,7 +99,7 @@ public class PaymentSummaryService
 
         if (completedTask == timeoutTask)
         {
-            Console.WriteLine($"[Timeout] Task did not complete within {timeout.TotalMilliseconds}ms.");
+            ConsoleWriterService.WriteLine($"[Timeout] Task did not complete within {timeout.TotalMilliseconds}ms.");
             return false;
         }
 

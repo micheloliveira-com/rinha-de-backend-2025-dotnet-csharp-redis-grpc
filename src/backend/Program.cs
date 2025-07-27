@@ -71,6 +71,7 @@ builder.Services.AddTransient<IDbConnection>(sp =>
     new NpgsqlConnection(builder.Configuration.GetConnectionString("postgres")));
 builder.Services.AddTransient<CountingHandler>();
 builder.Services.AddSingleton<PaymentService>();
+builder.Services.AddSingleton<ConsoleWriterService>();
 builder.Services.AddSingleton<PaymentSummaryService>();
 builder.Services.AddSingleton<PaymentBatchInserterService>();
 builder.Services.AddSingleton<RedisQueueWorker>();

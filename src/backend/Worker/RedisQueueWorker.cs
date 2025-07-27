@@ -8,21 +8,20 @@ using System.Diagnostics;
 
 public class RedisQueueWorker : BackgroundService
 {
-    private readonly IDatabase _db;
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly string _queueKey = "task-queue";
-    private readonly int _parallelism = 10;
+    private IDatabase Db { get; }
+    private IServiceScopeFactory ScopeFactory { get; }
 
     public RedisQueueWorker(IConnectionMultiplexer redis, IServiceScopeFactory scopeFactory)
     {
-        _db = redis.GetDatabase();
-        _scopeFactory = scopeFactory;
+        Db = redis.GetDatabase();
+        ScopeFactory = scopeFactory;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var workers = new Task[_parallelism];
-        for (int i = 0; i < _parallelism; i++)
+        var paralelism = Constant.REDIS_WORKER_SIZE;
+        var workers = new Task[paralelism];
+        for (int i = 0; i < paralelism; i++)
         {
             workers[i] = Task.Run(() => WorkerLoopAsync(stoppingToken), stoppingToken);
         }
@@ -38,9 +37,9 @@ public class RedisQueueWorker : BackgroundService
             {
                 RedisValue msg;
 
-                while ((msg = await _db.ListLeftPopAsync(_queueKey).ConfigureAwait(false)).HasValue)
+                while ((msg = await Db.ListLeftPopAsync(Constant.REDIS_QUEUE_KEY).ConfigureAwait(false)).HasValue)
                 {
-                    using var scope = _scopeFactory.CreateScope();
+                    using var scope = ScopeFactory.CreateScope();
                     var paymentService = scope.ServiceProvider.GetRequiredService<PaymentService>();
                     await paymentService.ProcessPaymentAsync(msg!).ConfigureAwait(false);
                 }

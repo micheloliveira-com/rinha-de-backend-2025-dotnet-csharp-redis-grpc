@@ -39,7 +39,7 @@ public class PaymentService
         _ = Task.Run(async () =>
         {
             var db = Redis.GetDatabase();
-            await db.ListRightPushAsync("task-queue", rawBody, flags: StackExchange.Redis.CommandFlags.FireAndForget).ConfigureAwait(false);
+            await db.ListRightPushAsync(Constant.REDIS_QUEUE_KEY, rawBody, flags: StackExchange.Redis.CommandFlags.FireAndForget).ConfigureAwait(false);
         });
 
         return Results.Accepted();
@@ -56,6 +56,10 @@ public class PaymentService
     public async Task ProcessPaymentAsync(string message)
     {
         var request = JsonSerializer.Deserialize(message, JsonContext.Default.ProcessorPaymentRequest);
+        if (request == null)
+        {
+            return;
+        }
         var requestedAt = DateTimeOffset.UtcNow;
         var redisDb = Redis.GetDatabase();
         await ReactiveLockTrackerState.WaitIfBlockedAsync().ConfigureAwait(false);
@@ -67,7 +71,7 @@ public class PaymentService
         ), JsonContext.Default.ProcessorPaymentRequest).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            await redisDb.ListRightPushAsync("task-queue", message, flags: StackExchange.Redis.CommandFlags.FireAndForget).ConfigureAwait(false);
+            await redisDb.ListRightPushAsync(Constant.REDIS_QUEUE_KEY, message, flags: StackExchange.Redis.CommandFlags.FireAndForget).ConfigureAwait(false);
             return;
         }
         var parameters = new PaymentInsertParameters(
