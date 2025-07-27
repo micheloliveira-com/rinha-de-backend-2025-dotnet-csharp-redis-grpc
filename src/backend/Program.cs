@@ -85,9 +85,9 @@ if (builder.Environment.IsProduction())
 }
 builder.Services.InitializeDistributedRedisReactiveLock(Dns.GetHostName());
 
-builder.Services.AddDistributedRedisReactiveLock("http");
-builder.Services.AddDistributedRedisReactiveLock("postgres");
-builder.Services.AddDistributedRedisReactiveLock("api:payments-summary", [
+builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_HTTP_NAME);
+builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_POSTGRES_NAME);
+builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME, [
     async(sp) => {
         var summary = sp.GetRequiredService<PaymentSummaryService>();
         await summary.FlushWhileGateBlockedAsync();

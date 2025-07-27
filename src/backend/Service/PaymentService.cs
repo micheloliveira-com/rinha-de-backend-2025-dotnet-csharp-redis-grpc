@@ -25,7 +25,7 @@ public class PaymentService
         Conn = conn;
         Redis = redis;
         BatchInserter = batchInserter;
-        ReactiveLockTrackerState = reactiveLockTrackerFactory.GetTrackerState("api:payments-summary");
+        ReactiveLockTrackerState = reactiveLockTrackerFactory.GetTrackerState(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME);
 
         HttpDefault = factory.CreateClient(defaultProcessorName);
     }

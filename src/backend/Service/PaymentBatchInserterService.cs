@@ -21,7 +21,7 @@ public class PaymentBatchInserterService
     IReactiveLockTrackerFactory reactiveLockTrackerFactory)
     {
         DbConnection = dbConnection ?? throw new ArgumentNullException(nameof(dbConnection));
-        ReactiveLockTrackerController = reactiveLockTrackerFactory.GetTrackerController("postgres");
+        ReactiveLockTrackerController = reactiveLockTrackerFactory.GetTrackerController(Constant.REACTIVELOCK_POSTGRES_NAME);
     }
 
     public async Task<int> AddAsync(PaymentInsertParameters payment)

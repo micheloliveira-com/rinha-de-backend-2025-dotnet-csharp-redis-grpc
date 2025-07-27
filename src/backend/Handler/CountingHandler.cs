@@ -17,7 +17,7 @@ public class CountingHandler : DelegatingHandler
 
     public CountingHandler(IReactiveLockTrackerFactory reactiveLockTrackerFactory)
     {
-        ReactiveLockTrackerController = reactiveLockTrackerFactory.GetTrackerController("http");
+        ReactiveLockTrackerController = reactiveLockTrackerFactory.GetTrackerController(Constant.REACTIVELOCK_HTTP_NAME);
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

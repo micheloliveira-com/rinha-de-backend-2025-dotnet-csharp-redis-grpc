@@ -25,11 +25,11 @@ public class PaymentSummaryService
 
     public async Task<IResult> GetPaymentsSummaryAsync(DateTimeOffset? from, DateTimeOffset? to)
     {
-        var paymentsLock = LockFactory.GetTrackerController("api:payments-summary");
+        var paymentsLock = LockFactory.GetTrackerController(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME);
         await paymentsLock.IncrementAsync().ConfigureAwait(false);
 
-        var postgresChannelBlockingGate = LockFactory.GetTrackerState("postgres");
-        var channelBlockingGate = LockFactory.GetTrackerState("http");
+        var postgresChannelBlockingGate = LockFactory.GetTrackerState(Constant.REACTIVELOCK_POSTGRES_NAME);
+        var channelBlockingGate = LockFactory.GetTrackerState(Constant.REACTIVELOCK_HTTP_NAME);
 
         try
         {
@@ -40,14 +40,14 @@ public class PaymentSummaryService
             }, timeout: TimeSpan.FromSeconds(1.3)).ConfigureAwait(false);
 
             const string sql = @"
-            SELECT processor,
-                COUNT(*) AS total_requests,
-                SUM(amount) AS total_amount
-            FROM payments
-            WHERE (@from IS NULL OR requested_at >= @from)
-            AND (@to IS NULL OR requested_at <= @to)
-            GROUP BY processor;
-        ";
+                SELECT processor,
+                    COUNT(*) AS total_requests,
+                    SUM(amount) AS total_amount
+                FROM payments
+                WHERE (@from IS NULL OR requested_at >= @from)
+                AND (@to IS NULL OR requested_at <= @to)
+                GROUP BY processor;
+            ";
             List<PaymentSummaryResult> result = [.. await Conn.QueryAsync<PaymentSummaryResult>(sql, new { from, to }).ConfigureAwait(false)];
 
             var defaultResult = result?.FirstOrDefault(r => r.Processor == DefaultProcessorName) ?? new PaymentSummaryResult(DefaultProcessorName, 0, 0);
@@ -70,7 +70,7 @@ public class PaymentSummaryService
     public async Task FlushWhileGateBlockedAsync()
     {
         Console.WriteLine("[Redis] Gate blocked.");
-        var state = LockFactory.GetTrackerState("api:payments-summary");
+        var state = LockFactory.GetTrackerState(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME);
 
         await state.WaitIfBlockedAsync(
             whileBlockedLoopDelay: TimeSpan.FromMilliseconds(10),
