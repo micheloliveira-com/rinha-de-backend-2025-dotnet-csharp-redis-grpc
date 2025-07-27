@@ -21,7 +21,6 @@
     <PackageReference Include="ReactiveLock.DependencyInjection" Version="0.0.15" />
     <PackageReference Include="ReactiveLock.Distributed.Redis" Version="0.0.15" />
     <PackageReference Include="StackExchange.Redis" Version="2.8.58" />
-    <PackageReference Include="System.Threading.RateLimiting" Version="9.0.7" />
   </ItemGroup>
 
 </Project>

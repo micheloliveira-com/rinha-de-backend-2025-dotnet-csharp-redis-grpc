@@ -15,7 +15,6 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading.RateLimiting;
 [module: DapperAot]
 
 var builder = WebApplication.CreateSlimBuilder(args);
