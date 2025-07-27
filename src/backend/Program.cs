@@ -20,22 +20,22 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
+var warmupRetryPolicy = Policy
+    .Handle<Exception>()
+    .WaitAndRetry(
+        retryCount: 60,
+        sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
+        onRetry: (exception, timeSpan, retryCount, context) =>
+        {
+            Console.WriteLine($"Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
+        });
+
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 {
     var configuration = builder.Configuration.GetConnectionString("redis")!;
     var options = ConfigurationOptions.Parse(configuration);
 
-    var retryPolicy = Policy
-        .Handle<Exception>()
-        .WaitAndRetry(
-            retryCount: 60,
-            sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
-            onRetry: (exception, timeSpan, retryCount, context) =>
-            {
-                Console.WriteLine($"[Redis] Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
-            });
-
-    return retryPolicy.Execute(() =>
+    return warmupRetryPolicy.Execute(() =>
     {
         Console.WriteLine("[Redis] Attempting connection...");
         var muxer = ConnectionMultiplexer.Connect(options);
@@ -96,6 +96,15 @@ builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_API_PAYME
 var app = builder.Build();
 
 await app.UseDistributedRedisReactiveLockAsync();
+
+await warmupRetryPolicy.Execute(async () =>
+{
+    using var scope = app.Services.CreateScope();
+    Console.WriteLine("[Postgres] Attempting warmup connection...");
+    var db = scope.ServiceProvider.GetRequiredService<IDbConnection>();
+    await db.ExecuteAsync("SELECT 1;");
+    Console.WriteLine("[Postgres] Connection warmup successful.");
+});
 
 var apiGroup = app.MapGroup("/");
 apiGroup.MapGet("/", () => Results.Ok());
