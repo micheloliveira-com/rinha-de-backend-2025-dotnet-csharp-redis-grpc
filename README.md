@@ -2,7 +2,35 @@
 
 API de pagamentos desenvolvida para o desafio [Rinha de Backend 2025](https://github.com/zanfranceschi/rinha-de-backend-2025), com foco em performance extrema, inicialização instantânea e concorrência eficiente. A aplicação é construída com .NET 9 em modo AOT (Ahead-of-Time), garantindo uso mínimo de recursos e latência reduzida.
 
-PS: Nem todas as implementações feitas neste projeto são recomendadas para cenários reais de produção e algumas delas foram desenvolvidas especificamente para o desafio Rinha de Backend 2025.
+## Leia no meu blog os insights que tive dessa versão:
+http://micheloliveira.com/blog/desafio-performance-rinha-backend-2025-insights-csharp-postgresql-redis/
+
+*PS: Nem todas as implementações feitas neste projeto são recomendadas para cenários reais de produção e algumas delas foram desenvolvidas especificamente para o desafio Rinha de Backend 2025.*
+
+## Execução local:
+```json
+{
+  "participante": "anonymous",
+  "total_liquido": 363940.155,
+  "total_bruto": 333126,
+  "total_taxas": 16656.3,
+  "descricao": "'total_liquido' é sua pontuação final. Equivale ao seu lucro. Fórmula: total_liquido + (total_liquido * p99.bonus) - (total_liquido * multa.porcentagem)",
+  "p99": {
+    "valor": "3.31ms",
+    "bonus": 0.15,
+    "max_requests": "550",
+    "descricao": "Fórmula para o bônus: max((11 - p99.valor) * 0.02, 0)"
+  },
+  "multa": {
+    "porcentagem": 0,
+    "total": 0,
+    "composicao": {
+      "total_inconsistencias": 0,
+      "descricao": "Se 'total_inconsistencias' > 0, há multa de 35%."
+    }
+  }
+}
+```
 
 ## Stack
 
