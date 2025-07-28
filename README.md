@@ -13,13 +13,13 @@ http://micheloliveira.com/blog/desafio-performance-rinha-backend-2025-insights-c
 ```json
 {
   "participante": "anonymous",
-  "total_liquido": 363940.155,
+  "total_liquido": 367104.852,
   "total_bruto": 333126,
   "total_taxas": 16656.3,
   "descricao": "'total_liquido' é sua pontuação final. Equivale ao seu lucro. Fórmula: total_liquido + (total_liquido * p99.bonus) - (total_liquido * multa.porcentagem)",
   "p99": {
-    "valor": "3.31ms",
-    "bonus": 0.15,
+    "valor": "3.21ms",
+    "bonus": "16%",
     "max_requests": "550",
     "descricao": "Fórmula para o bônus: max((11 - p99.valor) * 0.02, 0)"
   },
@@ -27,8 +27,8 @@ http://micheloliveira.com/blog/desafio-performance-rinha-backend-2025-insights-c
     "porcentagem": 0,
     "total": 0,
     "composicao": {
-      "total_inconsistencias": 0,
-      "descricao": "Se 'total_inconsistencias' > 0, há multa de 35%."
+      "num_inconsistencias": 0,
+      "descricao": "Se 'num_inconsistencias' > 0, há multa de 35%."
     }
   }
 }
