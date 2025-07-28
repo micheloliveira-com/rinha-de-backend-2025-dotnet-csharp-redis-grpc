@@ -81,7 +81,7 @@ if (builder.Environment.IsProduction())
 builder.Services.InitializeDistributedRedisReactiveLock(Dns.GetHostName());
 
 builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_HTTP_NAME);
-builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_POSTGRES_NAME);
+builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_REDIS_NAME);
 builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME, [
     async(sp) => {
         var summary = sp.GetRequiredService<PaymentSummaryService>();

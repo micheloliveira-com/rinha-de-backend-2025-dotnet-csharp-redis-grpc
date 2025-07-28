@@ -29,14 +29,14 @@ public class PaymentSummaryService
         var paymentsLock = LockFactory.GetTrackerController(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME);
         await paymentsLock.IncrementAsync().ConfigureAwait(false);
 
-        var postgresChannelBlockingGate = LockFactory.GetTrackerState(Constant.REACTIVELOCK_POSTGRES_NAME);
+        var redisChannelBlockingGate = LockFactory.GetTrackerState(Constant.REACTIVELOCK_REDIS_NAME);
         var channelBlockingGate = LockFactory.GetTrackerState(Constant.REACTIVELOCK_HTTP_NAME);
 
         try
         {
             await WaitWithTimeoutAsync(async () =>
             {
-                await postgresChannelBlockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
+                await redisChannelBlockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
                 await channelBlockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
             }, timeout: TimeSpan.FromSeconds(1.3)).ConfigureAwait(false);
 

@@ -21,7 +21,7 @@ public class PaymentBatchInserterService
     IReactiveLockTrackerFactory reactiveLockTrackerFactory)
     {
         RedisDb = redis.GetDatabase();
-        ReactiveLockTrackerController = reactiveLockTrackerFactory.GetTrackerController(Constant.REACTIVELOCK_POSTGRES_NAME);
+        ReactiveLockTrackerController = reactiveLockTrackerFactory.GetTrackerController(Constant.REACTIVELOCK_REDIS_NAME);
     }
 
     public async Task<int> AddAsync(PaymentInsertParameters payment)
