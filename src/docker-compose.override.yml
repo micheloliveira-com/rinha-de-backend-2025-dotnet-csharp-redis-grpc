@@ -3,15 +3,12 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    image: rinha-de-backend-2025-dotnet-csharp-postgres:latest
+    image: rinha-de-backend-2025-dotnet-csharp-redis:latest
   backend-2:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    image: rinha-de-backend-2025-dotnet-csharp-postgres:latest
+    image: rinha-de-backend-2025-dotnet-csharp-redis:latest
   redis:
     ports:
       - "6379:6379"
-  backend-db:
-    ports:
-      - "5432:5432" 
