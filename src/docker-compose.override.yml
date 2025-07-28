@@ -12,6 +12,3 @@ services:
   redis:
     ports:
       - "6379:6379"
-  backend-db:
-    ports:
-      - "5432:5432" 

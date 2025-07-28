@@ -7,8 +7,8 @@ using StackExchange.Redis;
 
 public class PaymentService
 {
-    private IDbConnection Conn { get; }
     private IConnectionMultiplexer Redis { get; }
+    private IDatabase RedisDb { get; }
     private PaymentBatchInserterService BatchInserter { get; }
     private IReactiveLockTrackerState ReactiveLockTrackerState { get; }
     private HttpClient HttpDefault { get; }
@@ -17,12 +17,11 @@ public class PaymentService
         IHttpClientFactory factory,
         IConnectionMultiplexer redis,
         PaymentBatchInserterService batchInserter,
-        IDbConnection conn,
         IReactiveLockTrackerFactory reactiveLockTrackerFactory
     )
     {
-        Conn = conn;
         Redis = redis;
+        RedisDb = redis.GetDatabase();
         BatchInserter = batchInserter;
         ReactiveLockTrackerState = reactiveLockTrackerFactory.GetTrackerState(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME);
 
@@ -48,9 +47,8 @@ public class PaymentService
 
     public async Task<IResult> PurgePaymentsAsync()
     {
-        const string sql = "TRUNCATE TABLE payments";
-        await Conn.ExecuteAsync(sql).ConfigureAwait(false);
-        return Results.Ok("Payments table truncated.");
+        await RedisDb.KeyDeleteAsync(Constant.REDIS_PAYMENTS_BATCH_KEY).ConfigureAwait(false);
+        return Results.Ok("Payments removed from Redis.");
     }
 
     public async Task ProcessPaymentAsync(string message)

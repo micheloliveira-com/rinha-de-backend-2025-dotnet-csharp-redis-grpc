@@ -3,21 +3,22 @@ using Dapper;
 using StackExchange.Redis;
 using MichelOliveira.Com.ReactiveLock.Core;
 using MichelOliveira.Com.ReactiveLock.DependencyInjection;
+using System.Text.Json;
 
 public class PaymentSummaryService
 {
-    private IDbConnection Conn { get; }
     private IReactiveLockTrackerFactory LockFactory { get; }
+    private IDatabase RedisDb { get; }
     private PaymentBatchInserterService BatchInserter { get; }
     private ConsoleWriterService ConsoleWriterService { get; }
 
     public PaymentSummaryService(
-        IDbConnection conn,
         IReactiveLockTrackerFactory lockFactory,
         PaymentBatchInserterService batchInserter,
-        ConsoleWriterService consoleWriterService)
+        ConsoleWriterService consoleWriterService,
+        IConnectionMultiplexer redis)
     {
-        Conn = conn;
+        RedisDb = redis.GetDatabase();
         LockFactory = lockFactory;
         BatchInserter = batchInserter;
         ConsoleWriterService = consoleWriterService;
@@ -39,19 +40,31 @@ public class PaymentSummaryService
                 await channelBlockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
             }, timeout: TimeSpan.FromSeconds(1.3)).ConfigureAwait(false);
 
-            const string sql = @"
-                SELECT processor,
-                    COUNT(*) AS total_requests,
-                    SUM(amount) AS total_amount
-                FROM payments
-                WHERE (@from IS NULL OR requested_at >= @from)
-                AND (@to IS NULL OR requested_at <= @to)
-                GROUP BY processor;
-            ";
-            List<PaymentSummaryResult> result = [.. await Conn.QueryAsync<PaymentSummaryResult>(sql, new { from, to }).ConfigureAwait(false)];
+            var redisValues = await RedisDb.ListRangeAsync(Constant.REDIS_PAYMENTS_BATCH_KEY).ConfigureAwait(false);
 
-            var defaultResult = result?.FirstOrDefault(r => r.Processor == Constant.DEFAULT_PROCESSOR_NAME) ?? new PaymentSummaryResult(Constant.DEFAULT_PROCESSOR_NAME, 0, 0);
-            var fallbackResult = result?.FirstOrDefault(r => r.Processor == Constant.FALLBACK_PROCESSOR_NAME) ?? new PaymentSummaryResult(Constant.FALLBACK_PROCESSOR_NAME, 0, 0);
+            var payments = redisValues
+                .Select(v => JsonSerializer.Deserialize(v!, JsonContext.Default.PaymentInsertParameters))
+                .Where(p => p != null)
+                .Where(p =>
+                    (!from.HasValue || p?.RequestedAt >= from) &&
+                    (!to.HasValue || p?.RequestedAt <= to))
+                .ToList();
+
+            var grouped = payments
+                .GroupBy(p => p!.Processor)
+                .ToDictionary(g => g.Key,
+                            g => new PaymentSummaryResult(
+                                Processor: g.Key,
+                                TotalRequests: g.Count(),
+                                TotalAmount: g.Sum(p => p!.Amount)));
+
+            var defaultResult = grouped.TryGetValue(Constant.DEFAULT_PROCESSOR_NAME, out var d)
+                ? d
+                : new PaymentSummaryResult(Constant.DEFAULT_PROCESSOR_NAME, 0, 0);
+
+            var fallbackResult = grouped.TryGetValue(Constant.FALLBACK_PROCESSOR_NAME, out var f)
+                ? f
+                : new PaymentSummaryResult(Constant.FALLBACK_PROCESSOR_NAME, 0, 0);
 
             var response = new PaymentSummaryResponse(
                 new PaymentSummary(defaultResult.TotalRequests, defaultResult.TotalAmount),

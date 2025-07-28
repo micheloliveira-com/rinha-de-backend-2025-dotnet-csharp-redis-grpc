@@ -4,7 +4,6 @@ using MichelOliveira.Com.ReactiveLock.DependencyInjection;
 using MichelOliveira.Com.ReactiveLock.Distributed.Redis;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
 using Polly;
 using Polly.Extensions.Http;
 using Polly.Retry;
@@ -27,16 +26,6 @@ var warmupRetryPolicy = Policy
         onRetry: (exception, timeSpan, retryCount, context) =>
         {
             Console.WriteLine($"Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
-        });
-
-var warmupAsyncRetryPolicy = Policy
-    .Handle<Exception>()
-    .WaitAndRetryAsync(
-        retryCount: 60,
-        sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
-        onRetry: (exception, timeSpan, retryCount, context) =>
-        {
-            Console.WriteLine($"Async Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
         });
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
@@ -76,8 +65,6 @@ builder.Services.AddHttpClient(Constant.DEFAULT_PROCESSOR_NAME, o =>
     })
     .AddHttpMessageHandler<CountingHandler>();
 
-builder.Services.AddTransient<IDbConnection>(sp =>
-    new NpgsqlConnection(builder.Configuration.GetConnectionString("postgres")));
 builder.Services.AddTransient<CountingHandler>();
 builder.Services.AddSingleton<PaymentService>();
 builder.Services.AddSingleton<ConsoleWriterService>();
@@ -105,23 +92,6 @@ builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_API_PAYME
 var app = builder.Build();
 
 await app.UseDistributedRedisReactiveLockAsync();
-
-await warmupAsyncRetryPolicy.ExecuteAsync(async () =>
-{
-    using var scope = app.Services.CreateScope();
-    Console.WriteLine("[Postgres] Attempting warmup connection...");
-    
-    var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
-    var connString = configuration.GetConnectionString("postgres");
-
-    await using var connection = new NpgsqlConnection(connString);
-    await connection.OpenAsync();
-
-    await using var command = new NpgsqlCommand("SELECT 1;", connection);
-    await command.ExecuteNonQueryAsync();
-
-    Console.WriteLine("[Postgres] Connection warmup successful.");
-});
 
 var apiGroup = app.MapGroup("/");
 apiGroup.MapGet("/", () => Results.Ok());

@@ -3,23 +3,24 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Dapper;
 using MichelOliveira.Com.ReactiveLock.Core;
 using MichelOliveira.Com.ReactiveLock.DependencyInjection;
-using Npgsql;
+using StackExchange.Redis;
 
 public class PaymentBatchInserterService
 {
     private ConcurrentQueue<PaymentInsertParameters> Buffer { get; } = new();
 
-    private IDbConnection DbConnection { get; }
+    private IDatabase RedisDb { get; }
     private IReactiveLockTrackerController ReactiveLockTrackerController { get; }
 
-    public PaymentBatchInserterService(IDbConnection dbConnection,
+    public PaymentBatchInserterService(IConnectionMultiplexer redis,
     IReactiveLockTrackerFactory reactiveLockTrackerFactory)
     {
-        DbConnection = dbConnection ?? throw new ArgumentNullException(nameof(dbConnection));
+        RedisDb = redis.GetDatabase();
         ReactiveLockTrackerController = reactiveLockTrackerFactory.GetTrackerController(Constant.REACTIVELOCK_POSTGRES_NAME);
     }
 
@@ -28,69 +29,45 @@ public class PaymentBatchInserterService
         await ReactiveLockTrackerController.IncrementAsync().ConfigureAwait(false);
         Buffer.Enqueue(payment);
 
-        if (Buffer.Count >= Constant.POSTGRES_BATCH_SIZE)
+        if (Buffer.Count >= Constant.REDIS_BATCH_SIZE)
         {
             return await FlushBatchAsync().ConfigureAwait(false);
         }
         return 0;
     }
-    
     public async Task<int> FlushBatchAsync()
+{
+    if (Buffer.IsEmpty)
+        return 0;
+
+    int totalInserted = 0;
+
+    while (!Buffer.IsEmpty)
     {
-        if (Buffer.IsEmpty)
-            return 0;
+        var batch = new List<PaymentInsertParameters>(Constant.REDIS_BATCH_SIZE);
+        while (batch.Count < Constant.REDIS_BATCH_SIZE && Buffer.TryDequeue(out var item))
+            batch.Add(item);
 
-        int totalInserted = 0;
+        if (batch.Count == 0)
+            break;
 
-        if (DbConnection is not NpgsqlConnection npgsqlConn)
-            throw new InvalidOperationException("DbConnection must be an NpgsqlConnection.");
+        var tasks = new List<Task>();
 
-        string connectionString = npgsqlConn.ConnectionString;
-
-        await using var conn = new NpgsqlConnection(connectionString);
-        await conn.OpenAsync().ConfigureAwait(false);
-
-        while (!Buffer.IsEmpty)
+        foreach (var payment in batch)
         {
-            var batch = new List<PaymentInsertParameters>(Constant.POSTGRES_BATCH_SIZE);
-            while (batch.Count < Constant.POSTGRES_BATCH_SIZE && Buffer.TryDequeue(out var item))
-                batch.Add(item);
-
-            if (batch.Count == 0)
-                break;
-
-            var batchStopwatch = Stopwatch.StartNew();
-
-            var sqlBuilder = new System.Text.StringBuilder();
-            var parameters = new DynamicParameters();
-
-            sqlBuilder.AppendLine("INSERT INTO payments (correlation_id, processor, amount, requested_at) VALUES");
-
-            for (int i = 0; i < batch.Count; i++)
-            {
-                var p = batch[i];
-                var suffix = i.ToString();
-
-                sqlBuilder.AppendLine($"(@CorrelationId{suffix}, @Processor{suffix}, @Amount{suffix}, @RequestedAt{suffix}){(i < batch.Count - 1 ? "," : ";")}");
-
-                parameters.Add($"CorrelationId{suffix}", p.CorrelationId);
-                parameters.Add($"Processor{suffix}", p.Processor);
-                parameters.Add($"Amount{suffix}", p.Amount);
-                parameters.Add($"RequestedAt{suffix}", p.RequestedAt);
-            }
-
-            string finalSql = sqlBuilder.ToString();
-
-            await conn.ExecuteAsync(finalSql, parameters).ConfigureAwait(false);
-
-            batchStopwatch.Stop();
-
-            totalInserted += batch.Count;
-
-            await ReactiveLockTrackerController.DecrementAsync(batch.Count).ConfigureAwait(false);
+            string json = JsonSerializer.Serialize(payment, JsonContext.Default.PaymentInsertParameters);
+            var task = RedisDb.ListRightPushAsync(Constant.REDIS_PAYMENTS_BATCH_KEY, json);
+            tasks.Add(task);
         }
 
-        return totalInserted;
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+
+        totalInserted += batch.Count;
+
+        await ReactiveLockTrackerController.DecrementAsync(batch.Count).ConfigureAwait(false);
     }
+
+    return totalInserted;
+}
 
 }
