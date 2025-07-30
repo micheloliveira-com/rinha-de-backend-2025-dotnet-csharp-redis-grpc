@@ -73,7 +73,7 @@ builder.Services.AddSingleton<PaymentBatchInserterService>();
 builder.Services.AddSingleton<RedisQueueWorker>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<RedisQueueWorker>());
 
-if (builder.Environment.IsProduction())
+if (builder.Environment.IsProduction() || builder.Environment.IsDevelopment())
 {
     builder.Logging.ClearProviders();
     builder.Logging.SetMinimumLevel(LogLevel.Error);

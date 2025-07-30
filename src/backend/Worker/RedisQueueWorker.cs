@@ -37,7 +37,7 @@ public class RedisQueueWorker : BackgroundService
             {
                 RedisValue msg;
 
-                while ((msg = await Db.ListLeftPopAsync(Constant.REDIS_QUEUE_KEY).ConfigureAwait(false)).HasValue)
+                while (!cancellationToken.IsCancellationRequested && (msg = await Db.ListLeftPopAsync(Constant.REDIS_QUEUE_KEY).ConfigureAwait(false)).HasValue)
                 {
                     using var scope = ScopeFactory.CreateScope();
                     var paymentService = scope.ServiceProvider.GetRequiredService<PaymentService>();
@@ -47,6 +47,10 @@ public class RedisQueueWorker : BackgroundService
             }
             catch (Exception ex)
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
                 Console.WriteLine($"[Worker Error] {ex}");
             }
         }
