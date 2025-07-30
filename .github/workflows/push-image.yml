@@ -31,15 +31,27 @@ jobs:
           cd ${{ env.SOURCE_FOLDER }}
           docker compose build
 
-      - name: Tag image with timestamp
+      - name: Tag image with timestamp and latest
         id: tag
         run: |
           TIMESTAMP=$(date +'%Y%m%d%H%M%S')
-          IMAGE_TAG=ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:$TIMESTAMP
-          docker tag ${{ env.IMAGE_NAME }} $IMAGE_TAG
-          echo "Tagged image as $IMAGE_TAG"
-          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          IMAGE_NAME=${{ env.IMAGE_NAME }}
+          REPO=ghcr.io/${{ github.repository_owner }}
 
-      - name: Push Docker image to GHCR
+          TIMESTAMP_TAG=$REPO/$IMAGE_NAME:$TIMESTAMP
+          LATEST_TAG=$REPO/$IMAGE_NAME:latest
+
+          docker tag $IMAGE_NAME $TIMESTAMP_TAG
+          docker tag $IMAGE_NAME $LATEST_TAG
+
+          echo "Tagged image as:"
+          echo " - $TIMESTAMP_TAG"
+          echo " - $LATEST_TAG"
+
+          echo "timestamp_tag=$TIMESTAMP_TAG" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Push Docker images to GHCR
         run: |
-          docker push ${{ steps.tag.outputs.image_tag }}
+          docker push ${{ steps.tag.outputs.timestamp_tag }}
+          docker push ${{ steps.tag.outputs.latest_tag }}
