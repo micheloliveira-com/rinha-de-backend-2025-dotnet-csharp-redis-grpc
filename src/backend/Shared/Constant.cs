@@ -7,6 +7,4 @@ public static class Constant
     public const string FALLBACK_PROCESSOR_NAME = "fallback";
     public const string REDIS_QUEUE_KEY = "task-queue";
     public const string REDIS_PAYMENTS_BATCH_KEY = "payments:batch";
-    public const int REDIS_WORKER_SIZE = 10;
-    public const int REDIS_BATCH_SIZE = 100;
 }

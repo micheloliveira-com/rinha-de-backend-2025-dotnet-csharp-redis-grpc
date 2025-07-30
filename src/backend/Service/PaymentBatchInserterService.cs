@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Dapper;
 using MichelOliveira.Com.ReactiveLock.Core;
 using MichelOliveira.Com.ReactiveLock.DependencyInjection;
+using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
 public class PaymentBatchInserterService
@@ -16,12 +17,15 @@ public class PaymentBatchInserterService
 
     private IDatabase RedisDb { get; }
     private IReactiveLockTrackerController ReactiveLockTrackerController { get; }
+    public DefaultOptions Options { get; }
 
     public PaymentBatchInserterService(IConnectionMultiplexer redis,
-    IReactiveLockTrackerFactory reactiveLockTrackerFactory)
+    IReactiveLockTrackerFactory reactiveLockTrackerFactory,
+    IOptions<DefaultOptions> options)
     {
         RedisDb = redis.GetDatabase();
         ReactiveLockTrackerController = reactiveLockTrackerFactory.GetTrackerController(Constant.REACTIVELOCK_REDIS_NAME);
+        Options = options.Value;
     }
 
     public async Task<int> AddAsync(PaymentInsertParameters payment)
@@ -29,7 +33,7 @@ public class PaymentBatchInserterService
         await ReactiveLockTrackerController.IncrementAsync().ConfigureAwait(false);
         Buffer.Enqueue(payment);
 
-        if (Buffer.Count >= Constant.REDIS_BATCH_SIZE)
+        if (Buffer.Count >= Options.BATCH_SIZE)
         {
             return await FlushBatchAsync().ConfigureAwait(false);
         }
@@ -44,8 +48,8 @@ public class PaymentBatchInserterService
 
         while (!Buffer.IsEmpty)
         {
-            var batch = new List<PaymentInsertParameters>(Constant.REDIS_BATCH_SIZE);
-            while (batch.Count < Constant.REDIS_BATCH_SIZE && Buffer.TryDequeue(out var item))
+            var batch = new List<PaymentInsertParameters>(Options.BATCH_SIZE);
+            while (batch.Count < Options.BATCH_SIZE && Buffer.TryDequeue(out var item))
                 batch.Add(item);
 
             if (batch.Count == 0)

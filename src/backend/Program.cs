@@ -4,6 +4,7 @@ using MichelOliveira.Com.ReactiveLock.DependencyInjection;
 using MichelOliveira.Com.ReactiveLock.Distributed.Redis;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Extensions.Http;
 using Polly.Retry;
@@ -46,6 +47,10 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     });
 });
 
+builder.Services
+    .AddOptions<DefaultOptions>()
+    .Bind(builder.Configuration);
+
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, JsonContext.Default);
@@ -78,6 +83,7 @@ if (builder.Environment.IsProduction() || builder.Environment.IsDevelopment())
     builder.Logging.ClearProviders();
     builder.Logging.SetMinimumLevel(LogLevel.Error);
 }
+
 builder.Services.InitializeDistributedRedisReactiveLock(Dns.GetHostName());
 
 builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_HTTP_NAME);
@@ -91,6 +97,10 @@ builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_API_PAYME
 
 var app = builder.Build();
 
+var opts = app.Services.GetRequiredService<IOptions<DefaultOptions>>().Value;
+
+Console.WriteLine($"WORKER_SIZE: {opts.WORKER_SIZE}");
+Console.WriteLine($"BATCH_SIZE: {opts.BATCH_SIZE}");
 await app.UseDistributedRedisReactiveLockAsync();
 
 var apiGroup = app.MapGroup("/");
