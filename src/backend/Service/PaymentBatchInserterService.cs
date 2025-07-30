@@ -36,38 +36,38 @@ public class PaymentBatchInserterService
         return 0;
     }
     public async Task<int> FlushBatchAsync()
-{
-    if (Buffer.IsEmpty)
-        return 0;
-
-    int totalInserted = 0;
-
-    while (!Buffer.IsEmpty)
     {
-        var batch = new List<PaymentInsertParameters>(Constant.REDIS_BATCH_SIZE);
-        while (batch.Count < Constant.REDIS_BATCH_SIZE && Buffer.TryDequeue(out var item))
-            batch.Add(item);
+        if (Buffer.IsEmpty)
+            return 0;
 
-        if (batch.Count == 0)
-            break;
+        int totalInserted = 0;
 
-        var tasks = new List<Task>();
-
-        foreach (var payment in batch)
+        while (!Buffer.IsEmpty)
         {
-            string json = JsonSerializer.Serialize(payment, JsonContext.Default.PaymentInsertParameters);
-            var task = RedisDb.ListRightPushAsync(Constant.REDIS_PAYMENTS_BATCH_KEY, json);
-            tasks.Add(task);
+            var batch = new List<PaymentInsertParameters>(Constant.REDIS_BATCH_SIZE);
+            while (batch.Count < Constant.REDIS_BATCH_SIZE && Buffer.TryDequeue(out var item))
+                batch.Add(item);
+
+            if (batch.Count == 0)
+                break;
+
+            var tasks = new List<Task>();
+
+            foreach (var payment in batch)
+            {
+                string json = JsonSerializer.Serialize(payment, JsonContext.Default.PaymentInsertParameters);
+                var task = RedisDb.ListRightPushAsync(Constant.REDIS_PAYMENTS_BATCH_KEY, json);
+                tasks.Add(task);
+            }
+
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+
+            totalInserted += batch.Count;
+
+            await ReactiveLockTrackerController.DecrementAsync(batch.Count).ConfigureAwait(false);
         }
 
-        await Task.WhenAll(tasks).ConfigureAwait(false);
-
-        totalInserted += batch.Count;
-
-        await ReactiveLockTrackerController.DecrementAsync(batch.Count).ConfigureAwait(false);
+        return totalInserted;
     }
-
-    return totalInserted;
-}
 
 }
