@@ -43,7 +43,7 @@ public class PaymentService
         {
             var db = Redis.GetDatabase();
             await db.ListRightPushAsync(Constant.REDIS_QUEUE_KEY, rawBody).ConfigureAwait(false);
-        });
+        }).ConfigureAwait(false);
 
         return Results.Accepted();
     }

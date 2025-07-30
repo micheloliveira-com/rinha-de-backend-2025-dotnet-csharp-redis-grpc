@@ -23,7 +23,7 @@ public class RedisQueueWorker : BackgroundService
         var workers = new Task[paralelism];
         for (int i = 0; i < paralelism; i++)
         {
-            workers[i] = Task.Run(() => WorkerLoopAsync(stoppingToken), stoppingToken);
+            workers[i] = Task.Run(() => WorkerLoopAsync(stoppingToken).ConfigureAwait(false), stoppingToken);
         }
 
         return Task.WhenAll(workers);
