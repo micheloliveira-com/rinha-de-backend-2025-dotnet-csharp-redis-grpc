@@ -16,6 +16,7 @@ message PaymentInsertRpcParameters {
 
 service PaymentReplication {
   rpc PublishPayments(stream PaymentInsertRpcParameters) returns (google.protobuf.Empty);
+  rpc SubscribeToPayments(google.protobuf.Empty) returns (stream PaymentInsertRpcParameters);
   rpc ClearPayments(google.protobuf.Empty) returns (google.protobuf.Empty);
 
 }
