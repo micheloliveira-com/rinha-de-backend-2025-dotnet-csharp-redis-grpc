@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Net.Client;
@@ -9,23 +10,22 @@ using Replication.Grpc;
 public class PaymentReplicationService : PaymentReplication.PaymentReplicationBase
 {
     private readonly ConcurrentBag<IServerStreamWriter<PaymentInsertRpcParameters>> _subscribers = new();
-
     private readonly ConcurrentBag<PaymentInsertRpcParameters> _replicatedPayments = new();
 
-
-    public override async Task<Google.Protobuf.WellKnownTypes.Empty> PublishPayments(IAsyncStreamReader<PaymentInsertRpcParameters> requestStream,
-                                                      ServerCallContext context)
+    public override async Task<Google.Protobuf.WellKnownTypes.Empty> PublishPayments(
+        IAsyncStreamReader<PaymentInsertRpcParameters> requestStream,
+        ServerCallContext context)
     {
-        await foreach (var payment in requestStream.ReadAllAsync(context.CancellationToken))
+        await foreach (var payment in requestStream.ReadAllAsync(context.CancellationToken).ConfigureAwait(false))
         {
             //Console.WriteLine($"[RECEIVED] Payment {payment.CorrelationId} from {payment.SourceInstance}");
-
             HandleLocally(payment);
-            await BroadcastAsync(payment);
+            await BroadcastAsync(payment).ConfigureAwait(false);
         }
 
-        return await Task.FromResult(new Google.Protobuf.WellKnownTypes.Empty());
+        return new Google.Protobuf.WellKnownTypes.Empty();
     }
+
     private void HandleLocally(PaymentInsertRpcParameters payment)
     {
         _replicatedPayments.Add(payment);
@@ -37,7 +37,7 @@ public class PaymentReplicationService : PaymentReplication.PaymentReplicationBa
         {
             try
             {
-                await subscriber.WriteAsync(payment);
+                await subscriber.WriteAsync(payment).ConfigureAwait(false);
             }
             catch
             {
@@ -78,11 +78,11 @@ public class PaymentReplicationClientManager
         {
             foreach (var payment in payments)
             {
-                await localCall.RequestStream.WriteAsync(payment);
+                await localCall.RequestStream.WriteAsync(payment).ConfigureAwait(false);
             }
 
-            await localCall.RequestStream.CompleteAsync();
-            await localCall.ResponseAsync;
+            await localCall.RequestStream.CompleteAsync().ConfigureAwait(false);
+            await localCall.ResponseAsync.ConfigureAwait(false);
         }
 
         // Send batch to each remote client
@@ -92,33 +92,31 @@ public class PaymentReplicationClientManager
             {
                 foreach (var payment in payments)
                 {
-                    await remoteCall.RequestStream.WriteAsync(payment);
+                    await remoteCall.RequestStream.WriteAsync(payment).ConfigureAwait(false);
                 }
 
-                await remoteCall.RequestStream.CompleteAsync();
-                await remoteCall.ResponseAsync;
+                await remoteCall.RequestStream.CompleteAsync().ConfigureAwait(false);
+                await remoteCall.ResponseAsync.ConfigureAwait(false);
             }
         }
     }
-
-
 
     // Call this to publish a batch or individual payment locally and remotely
     public async Task PublishPaymentAsync(PaymentInsertRpcParameters payment)
     {
         // Publish to local server (can be optional if local server already receives)
         using var localCall = _localClient.PublishPayments();
-        await localCall.RequestStream.WriteAsync(payment);
-        await localCall.RequestStream.CompleteAsync();
-        await localCall.ResponseAsync;
+        await localCall.RequestStream.WriteAsync(payment).ConfigureAwait(false);
+        await localCall.RequestStream.CompleteAsync().ConfigureAwait(false);
+        await localCall.ResponseAsync.ConfigureAwait(false);
 
         // Publish to replicas
         foreach (var client in _remoteClients)
         {
             using var call = client.PublishPayments();
-            await call.RequestStream.WriteAsync(payment);
-            await call.RequestStream.CompleteAsync();
-            await call.ResponseAsync;
+            await call.RequestStream.WriteAsync(payment).ConfigureAwait(false);
+            await call.RequestStream.CompleteAsync().ConfigureAwait(false);
+            await call.ResponseAsync.ConfigureAwait(false);
         }
     }
 }

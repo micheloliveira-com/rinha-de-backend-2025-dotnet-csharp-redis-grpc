@@ -7,6 +7,10 @@ using MichelOliveira.Com.ReactiveLock.Core;
 using MichelOliveira.Com.ReactiveLock.DependencyInjection;
 using ReactiveLock.Grpc;
 using static ReactiveLock.Grpc.ReactiveLockGrpc;
+using System.Linq;
+using System.Threading.Tasks;
+using System;
+using Google.Protobuf.WellKnownTypes;
 
 public class ReactiveLockGrpcTrackerStore(ReactiveLockGrpcClient client, string lockKey, string instanceName)
     : IReactiveLockTrackerStore
@@ -19,7 +23,7 @@ public class ReactiveLockGrpcTrackerStore(ReactiveLockGrpcClient client, string 
             LockKey = lockKey,
             InstanceId = instanceName,
             IsBusy = isBusy
-        });
+        }).ConfigureAwait(false);
     }
 }
 
@@ -68,7 +72,7 @@ public static class ReactiveLockGrpcTrackerExtensions
         {
             var state = factory.GetTrackerState(lockKey);
             var controller = factory.GetTrackerController(lockKey);
-            await controller.DecrementAsync();
+            await controller.DecrementAsync().ConfigureAwait(false);
 
             async Task SubscribeToUpdates(ReactiveLockGrpcClient client, string source)
             {
@@ -79,16 +83,16 @@ public static class ReactiveLockGrpcTrackerExtensions
                     {
                         LockKey = lockKey,
                         InstanceId = StoredInstanceName!
-                    });
+                    }).ConfigureAwait(false);
 
-                    await foreach (var update in call.ResponseStream.ReadAllAsync())
+                    await foreach (var update in call.ResponseStream.ReadAllAsync().ConfigureAwait(false))
                     {
                         //Console.WriteLine($"[{source}] Update for {lockKey}: AllIdle={update.InstancesStatus.All(x => !x.Value)}");
 
                         if (update.InstancesStatus.All(x => !x.Value))
-                            await state.SetLocalStateUnblockedAsync();
+                            await state.SetLocalStateUnblockedAsync().ConfigureAwait(false);
                         else
-                            await state.SetLocalStateBlockedAsync();
+                            await state.SetLocalStateBlockedAsync().ConfigureAwait(false);
                     }
                 }
                 catch (Exception ex)
@@ -131,7 +135,7 @@ public class ReactiveLockGrpcService : ReactiveLockGrpc.ReactiveLockGrpcBase
                                                    IServerStreamWriter<LockStatusNotification> responseStream,
                                                    ServerCallContext context)
     {
-        await foreach (var req in requestStream.ReadAllAsync(context.CancellationToken))
+        await foreach (var req in requestStream.ReadAllAsync(context.CancellationToken).ConfigureAwait(false))
         {
             var group = _groups.GetOrAdd(req.LockKey, _ => new LockGroup());
             group.Subscribers.Add(responseStream);
@@ -141,14 +145,14 @@ public class ReactiveLockGrpcService : ReactiveLockGrpc.ReactiveLockGrpcBase
             {
                 LockKey = req.LockKey,
                 InstancesStatus = { group.InstanceStates }
-            });
+            }).ConfigureAwait(false);
 
             //break; // Process only the first message
         }
 
         try
         {
-            await Task.Delay(Timeout.Infinite, context.CancellationToken);
+            await Task.Delay(Timeout.Infinite, context.CancellationToken).ConfigureAwait(false);
         }
         catch { }
     }
@@ -165,7 +169,7 @@ public class ReactiveLockGrpcService : ReactiveLockGrpc.ReactiveLockGrpcBase
         {
             try
             {
-                await subscriber.WriteAsync(notification);
+                await subscriber.WriteAsync(notification).ConfigureAwait(false);
             }
             catch
             {

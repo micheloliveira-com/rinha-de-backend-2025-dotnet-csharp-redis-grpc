@@ -2,8 +2,10 @@ syntax = "proto3";
 
 option csharp_namespace = "ReactiveLock.Grpc";
 
+import "google/protobuf/empty.proto";
+
 service ReactiveLockGrpc {
-  rpc SetStatus(LockStatusRequest) returns (Empty);
+  rpc SetStatus(LockStatusRequest) returns (google.protobuf.Empty);
   rpc SubscribeLockStatus(stream LockStatusRequest) returns (stream LockStatusNotification);
 }
 
@@ -17,5 +19,3 @@ message LockStatusNotification {
   string lockKey = 1;
   map<string, bool> instancesStatus = 2;
 }
-
-message Empty {}
