@@ -6,98 +6,29 @@ using Grpc.Net.Client;
 using ReactiveLock.Grpc;
 using Replication.Grpc;
 
-using System.Collections.Concurrent;
-using System.Threading.Channels;
-using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
-using ReactiveLock.Grpc;
-
-using System.Collections.Concurrent;
-using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
-using ReactiveLock.Grpc;
-
 public class PaymentReplicationService : PaymentReplication.PaymentReplicationBase
 {
     private readonly ConcurrentBag<IServerStreamWriter<PaymentInsertRpcParameters>> _subscribers = new();
+
     private readonly ConcurrentBag<PaymentInsertRpcParameters> _replicatedPayments = new();
 
-    public override async Task<Google.Protobuf.WellKnownTypes.Empty> PublishPayments(
-        IAsyncStreamReader<PaymentInsertRpcParameters> requestStream,
-        ServerCallContext context)
+
+    public override async Task<Google.Protobuf.WellKnownTypes.Empty> PublishPayments(IAsyncStreamReader<PaymentInsertRpcParameters> requestStream,
+                                                      ServerCallContext context)
     {
         await foreach (var payment in requestStream.ReadAllAsync(context.CancellationToken))
         {
-            Console.WriteLine($"[RECEIVED] Payment {payment.CorrelationId} from {payment.SourceInstance}");
+            //Console.WriteLine($"[RECEIVED] Payment {payment.CorrelationId} from {payment.SourceInstance}");
 
             HandleLocally(payment);
             await BroadcastAsync(payment);
         }
 
-        return new Google.Protobuf.WellKnownTypes.Empty();
+        return await Task.FromResult(new Google.Protobuf.WellKnownTypes.Empty());
     }
-
-    public override async Task<Google.Protobuf.WellKnownTypes.Empty> ClearPayments(Google.Protobuf.WellKnownTypes.Empty request, ServerCallContext context)
-    {
-        await ClearPaymentsAsync();
-        return new Google.Protobuf.WellKnownTypes.Empty();
-    }
-
-    /// <summary>
-    /// Clears the local replicated payments and notifies all subscribers to clear theirs.
-    /// Can be called programmatically from anywhere in-process.
-    /// </summary>
-    public async Task ClearPaymentsAsync()
-    {
-        Console.WriteLine("[CLEAR] Clearing all replicated payments (programmatically)");
-
-        _replicatedPayments.Clear();
-
-        var clearSignal = new PaymentInsertRpcParameters
-        {
-            CorrelationId = "__clear__",
-            SourceInstance = "server"
-        };
-
-        await BroadcastAsync(clearSignal);
-    }
-
-    public override async Task SubscribeToPayments(
-        Google.Protobuf.WellKnownTypes.Empty request,
-        IServerStreamWriter<PaymentInsertRpcParameters> responseStream,
-        ServerCallContext context)
-    {
-        _subscribers.Add(responseStream);
-        Console.WriteLine("[SUBSCRIBE] New subscriber registered");
-
-        foreach (var payment in _replicatedPayments)
-        {
-            await responseStream.WriteAsync(payment);
-        }
-
-        try
-        {
-            await Task.Delay(-1, context.CancellationToken); // Keep stream open
-        }
-        catch (TaskCanceledException)
-        {
-            Console.WriteLine("[SUBSCRIBE] Subscriber disconnected");
-            _subscribers.TryTake(out _);
-        }
-    }
-
     private void HandleLocally(PaymentInsertRpcParameters payment)
     {
-        if (payment.CorrelationId == "__clear__")
-        {
-            _replicatedPayments.Clear();
-        }
-        else
-        {
-            _replicatedPayments.Add(payment);
-        }
+        _replicatedPayments.Add(payment);
     }
 
     private async Task BroadcastAsync(PaymentInsertRpcParameters payment)
@@ -120,7 +51,6 @@ public class PaymentReplicationService : PaymentReplication.PaymentReplicationBa
         return _replicatedPayments.ToArray();
     }
 }
-
 
 public class PaymentReplicationClientManager
 {

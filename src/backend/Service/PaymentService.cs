@@ -47,7 +47,7 @@ public class PaymentService
 
     public async Task<IResult> PurgePaymentsAsync()
     {
-        await PaymentReplicationService.ClearPaymentsAsync();
+        //await PaymentReplicationService.ClearPaymentsAsync();
         return Results.Ok("Payments removed from Redis.");
     }
 
