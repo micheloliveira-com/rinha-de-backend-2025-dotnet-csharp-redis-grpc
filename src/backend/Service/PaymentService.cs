@@ -13,20 +13,21 @@ public class PaymentService
     private InMemoryQueueWorker InMemoryQueueWorker { get; }
     private IReactiveLockTrackerState ReactiveLockTrackerState { get; }
     private HttpClient HttpDefault { get; }
-
+    private PaymentReplicationService PaymentReplicationService { get; }
     public PaymentService(
         ConsoleWriterService consoleWriterService,
         IHttpClientFactory factory,
         PaymentBatchInserterService batchInserter,
         IReactiveLockTrackerFactory reactiveLockTrackerFactory,
-        InMemoryQueueWorker inMemoryQueueWorker
+        InMemoryQueueWorker inMemoryQueueWorker,
+        PaymentReplicationService paymentReplicationService
     )
     {
         ConsoleWriterService = consoleWriterService;
         BatchInserter = batchInserter;
         InMemoryQueueWorker = inMemoryQueueWorker;
         ReactiveLockTrackerState = reactiveLockTrackerFactory.GetTrackerState(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME);
-
+        PaymentReplicationService = paymentReplicationService;
         HttpDefault = factory.CreateClient(Constant.DEFAULT_PROCESSOR_NAME);
     }
 
@@ -46,7 +47,7 @@ public class PaymentService
 
     public async Task<IResult> PurgePaymentsAsync()
     {
-        //await RedisDb.KeyDeleteAsync(Constant.REDIS_PAYMENTS_BATCH_KEY).ConfigureAwait(false);
+        PaymentReplicationService.GetReplicatedPaymentsSnapshot
         return Results.Ok("Payments removed from Redis.");
     }
 
