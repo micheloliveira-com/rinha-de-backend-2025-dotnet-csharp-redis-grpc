@@ -123,12 +123,13 @@ public class ReactiveLockGrpcService : ReactiveLockGrpc.ReactiveLockGrpcBase
 
     private readonly ConcurrentDictionary<string, LockGroup> _groups = new();
 
-    public override Task<Empty> SetStatus(LockStatusRequest request, ServerCallContext context)
+    public override async Task<Empty> SetStatus(LockStatusRequest request, ServerCallContext context)
     {
         var group = _groups.GetOrAdd(request.LockKey, _ => new LockGroup());
         group.InstanceStates[request.InstanceId] = request.IsBusy;
-        _ = BroadcastAsync(request.LockKey, group);
-        return Task.FromResult(new Empty());
+        //_ = BroadcastAsync(request.LockKey, group);
+        await BroadcastAsync(request.LockKey, group);
+        return new Empty();
     }
 
     public override async Task SubscribeLockStatus(IAsyncStreamReader<LockStatusRequest> requestStream,
@@ -147,7 +148,7 @@ public class ReactiveLockGrpcService : ReactiveLockGrpc.ReactiveLockGrpcBase
                 InstancesStatus = { group.InstanceStates }
             }).ConfigureAwait(false);
 
-            //break; // Process only the first message
+            break; // Process only the first message
         }
 
         try
