@@ -16,7 +16,10 @@ EXPOSE 8080
 FROM mcr.microsoft.com/dotnet/sdk:9.0-alpine AS build
 # Install clang/zlib1g-dev dependencies for publishing to native
 RUN apk update \
-    && apk add build-base zlib-dev
+    && apk add build-base zlib-dev grpc-plugins
+
+ENV PROTOBUF_PROTOC=/usr/bin/protoc
+ENV GRPC_PROTOC_PLUGIN=/usr/bin/grpc_csharp_plugin
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 COPY ["backend/backend.csproj", "backend/"]
@@ -42,5 +45,6 @@ USER app
 FROM ${FINAL_BASE_IMAGE:-mcr.microsoft.com/dotnet/runtime-deps:9.0-alpine} AS final
 WORKDIR /app
 EXPOSE 8080
+EXPOSE 8081
 COPY --from=publish /app/publish .
 ENTRYPOINT ["./backend"]

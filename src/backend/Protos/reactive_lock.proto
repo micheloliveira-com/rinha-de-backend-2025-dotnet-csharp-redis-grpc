@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+option csharp_namespace = "ReactiveLock.Grpc";
+
+service ReactiveLockGrpc {
+  rpc SetStatus(LockStatusRequest) returns (Empty);
+  rpc SubscribeLockStatus(stream LockStatusRequest) returns (stream LockStatusNotification);
+}
+
+message LockStatusRequest {
+  string lockKey = 1;
+  string instanceId = 2;
+  bool isBusy = 3;
+}
+
+message LockStatusNotification {
+  string lockKey = 1;
+  map<string, bool> instancesStatus = 2;
+}
+
+message Empty {}

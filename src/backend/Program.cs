@@ -18,7 +18,18 @@ using System.Text.Json.Serialization;
 [module: DapperAot]
 
 var builder = WebApplication.CreateSlimBuilder(args);
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenAnyIP(8081, listenOptions =>
+    {
+        listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
+    });
 
+    options.ListenAnyIP(8080, listenOptions =>
+    {
+        listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1;
+    });
+});
 var warmupRetryPolicy = Policy
     .Handle<Exception>()
     .WaitAndRetry(
@@ -84,16 +95,24 @@ if (builder.Environment.IsProduction() || builder.Environment.IsDevelopment())
     builder.Logging.SetMinimumLevel(LogLevel.Error);
 }
 
-builder.Services.InitializeDistributedRedisReactiveLock(Dns.GetHostName());
+var local = builder.Configuration.GetConnectionString("rpc_local_server");
+var remote = builder.Configuration.GetConnectionString("rpc_replica_server");
 
-builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_HTTP_NAME);
-builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_REDIS_NAME);
-builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME, [
+if (string.IsNullOrWhiteSpace(local) || string.IsNullOrWhiteSpace(remote))
+    throw new InvalidOperationException("Missing RPC server addresses in configuration.");
+
+builder.Services.InitializeDistributedGrpcReactiveLock(Dns.GetHostName(), local, remote);
+
+builder.Services.AddDistributedGrpcReactiveLock(Constant.REACTIVELOCK_HTTP_NAME);
+builder.Services.AddDistributedGrpcReactiveLock(Constant.REACTIVELOCK_REDIS_NAME);
+builder.Services.AddDistributedGrpcReactiveLock(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME, [
     async(sp) => {
         var summary = sp.GetRequiredService<PaymentSummaryService>();
         await summary.FlushWhileGateBlockedAsync();
     }
 ]);
+builder.Services.AddGrpc();
+builder.Services.AddSingleton<ReactiveLockGrpcService>();
 
 var app = builder.Build();
 
@@ -101,7 +120,6 @@ var opts = app.Services.GetRequiredService<IOptions<DefaultOptions>>().Value;
 
 Console.WriteLine($"WORKER_SIZE: {opts.WORKER_SIZE}");
 Console.WriteLine($"BATCH_SIZE: {opts.BATCH_SIZE}");
-await app.UseDistributedRedisReactiveLockAsync();
 
 var apiGroup = app.MapGroup("/");
 apiGroup.MapGet("/", () => Results.Ok());
@@ -126,5 +144,12 @@ apiGroup.MapPost("/purge-payments", async (
     return await paymentService.PurgePaymentsAsync();
 });
 
+app.MapGrpcService<ReactiveLockGrpcService>();
+_ = Task.Run(async () =>
+{
+    await Task.Delay(10000);
+
+    await app.UseDistributedGrpcReactiveLockAsync();
+});
 app.Run();
 

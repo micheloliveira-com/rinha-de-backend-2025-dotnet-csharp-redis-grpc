@@ -7,8 +7,10 @@ services:
       - payment-processor
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - WORKER_SIZE=5
+      - WORKER_SIZE=10
       - BATCH_SIZE=100
+      - ConnectionStrings__rpc_local_server=http://backend-1:8081
+      - ConnectionStrings__rpc_replica_server=http://backend-2:8081
       - ConnectionStrings__default=http://payment-processor-default:8080
       - ConnectionStrings__fallback=http://payment-processor-fallback:8080
       - ConnectionStrings__redis=redis:6379
@@ -37,8 +39,10 @@ services:
       - payment-processor
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - WORKER_SIZE=5
+      - WORKER_SIZE=10
       - BATCH_SIZE=100
+      - ConnectionStrings__rpc_local_server=http://backend-2:8081
+      - ConnectionStrings__rpc_replica_server=http://backend-1:8081
       - ConnectionStrings__default=http://payment-processor-default:8080
       - ConnectionStrings__fallback=http://payment-processor-fallback:8080
       - ConnectionStrings__redis=redis:6379
