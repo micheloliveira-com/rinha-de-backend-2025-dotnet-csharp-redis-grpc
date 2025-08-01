@@ -1,16 +1,18 @@
+using System;
 using System.Collections.Concurrent;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 public class InMemoryQueueWorker : BackgroundService
 {
     private ConcurrentQueue<string> Queue { get; } = new();
-    private SemaphoreSlim Signal { get; } = new(0);
     private IServiceScopeFactory ScopeFactory { get; }
     private DefaultOptions Options { get; }
 
-    public InMemoryQueueWorker(
-        IServiceScopeFactory scopeFactory,
-        IOptions<DefaultOptions> options)
+    public InMemoryQueueWorker(IServiceScopeFactory scopeFactory, IOptions<DefaultOptions> options)
     {
         ScopeFactory = scopeFactory;
         Options = options.Value;
@@ -19,14 +21,14 @@ public class InMemoryQueueWorker : BackgroundService
     public void Enqueue(string msg)
     {
         Queue.Enqueue(msg);
-        Signal.Release();
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var workers = new Task[Options.WORKER_SIZE];
+        var parallelism = Options.WORKER_SIZE;
+        var workers = new Task[parallelism];
 
-        for (int i = 0; i < Options.WORKER_SIZE; i++)
+        for (int i = 0; i < parallelism; i++)
         {
             workers[i] = Task.Run(() => WorkerLoopAsync(stoppingToken), stoppingToken);
         }
@@ -40,13 +42,16 @@ public class InMemoryQueueWorker : BackgroundService
         {
             try
             {
-                await Signal.WaitAsync(cancellationToken);
-
                 if (Queue.TryDequeue(out var msg))
                 {
                     using var scope = ScopeFactory.CreateScope();
                     var paymentService = scope.ServiceProvider.GetRequiredService<PaymentService>();
                     await paymentService.ProcessPaymentAsync(msg!).ConfigureAwait(false);
+                }
+                else
+                {
+                    // No message, small delay to avoid busy waiting
+                    await Task.Delay(10, cancellationToken).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException)
