@@ -8,25 +8,23 @@ using StackExchange.Redis;
 
 public class PaymentService
 {
-    private IConnectionMultiplexer Redis { get; }
     private ConsoleWriterService ConsoleWriterService { get; }
-    private IDatabase RedisDb { get; }
     private PaymentBatchInserterService BatchInserter { get; }
+    private InMemoryQueueWorker InMemoryQueueWorker { get; }
     private IReactiveLockTrackerState ReactiveLockTrackerState { get; }
     private HttpClient HttpDefault { get; }
 
     public PaymentService(
         ConsoleWriterService consoleWriterService,
         IHttpClientFactory factory,
-        IConnectionMultiplexer redis,
         PaymentBatchInserterService batchInserter,
-        IReactiveLockTrackerFactory reactiveLockTrackerFactory
+        IReactiveLockTrackerFactory reactiveLockTrackerFactory,
+        InMemoryQueueWorker inMemoryQueueWorker
     )
     {
         ConsoleWriterService = consoleWriterService;
-        Redis = redis;
-        RedisDb = redis.GetDatabase();
         BatchInserter = batchInserter;
+        InMemoryQueueWorker = inMemoryQueueWorker;
         ReactiveLockTrackerState = reactiveLockTrackerFactory.GetTrackerState(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME);
 
         HttpDefault = factory.CreateClient(Constant.DEFAULT_PROCESSOR_NAME);
@@ -38,12 +36,9 @@ public class PaymentService
         using var ms = new MemoryStream();
         await context.Request.Body.CopyToAsync(ms);
         var rawBody = ms.ToArray();
+        var rawString = System.Text.Encoding.UTF8.GetString(rawBody);
 
-        _ = Task.Run(async () =>
-        {
-            var db = Redis.GetDatabase();
-            await db.ListRightPushAsync(Constant.REDIS_QUEUE_KEY, rawBody).ConfigureAwait(false);
-        }).ConfigureAwait(false);
+        InMemoryQueueWorker.Enqueue(rawString);
 
         return Results.Accepted();
     }
@@ -51,7 +46,7 @@ public class PaymentService
 
     public async Task<IResult> PurgePaymentsAsync()
     {
-        await RedisDb.KeyDeleteAsync(Constant.REDIS_PAYMENTS_BATCH_KEY).ConfigureAwait(false);
+        //await RedisDb.KeyDeleteAsync(Constant.REDIS_PAYMENTS_BATCH_KEY).ConfigureAwait(false);
         return Results.Ok("Payments removed from Redis.");
     }
 
@@ -96,12 +91,13 @@ public class PaymentService
         ), JsonContext.Default.ProcessorPaymentRequest).ConfigureAwait(false);
         if (response.IsSuccessStatusCode)
         {
-            var parameters = new PaymentInsertParameters(
-                CorrelationId: request.CorrelationId,
-                Processor: Constant.DEFAULT_PROCESSOR_NAME,
-                Amount: request.Amount,
-                RequestedAt: requestedAt
-            );
+            var parameters = new Replication.Grpc.PaymentInsertRpcParameters()
+            {
+                CorrelationId = request.CorrelationId.ToString(),
+                Processor = Constant.DEFAULT_PROCESSOR_NAME,
+                Amount = (double)request.Amount,
+                RequestedAt = requestedAt.ToString("o")
+            };
             await BatchInserter.AddAsync(parameters).ConfigureAwait(false);
             return;
         }
@@ -112,7 +108,8 @@ public class PaymentService
             ConsoleWriterService.WriteLine($"Discarding message due to client error: {statusCode} {response.ReasonPhrase}");
             return;
         }
-        var redisDb = Redis.GetDatabase();
-        await redisDb.ListRightPushAsync(Constant.REDIS_QUEUE_KEY, message).ConfigureAwait(false);
+        InMemoryQueueWorker.Enqueue(message);
+        //var redisDb = Redis.GetDatabase();
+        //await redisDb.ListRightPushAsync(Constant.REDIS_QUEUE_KEY, message).ConfigureAwait(false);
     }   
 }

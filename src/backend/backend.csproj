@@ -20,11 +20,11 @@
     <PackageReference Include="ReactiveLock.Core" Version="0.0.21" />
     <PackageReference Include="ReactiveLock.DependencyInjection" Version="0.0.21" />
     <PackageReference Include="ReactiveLock.Distributed.Redis" Version="0.0.21" />
-    <PackageReference Include="StackExchange.Redis" Version="2.8.58" />
   </ItemGroup>
 
   <ItemGroup>
     <Protobuf Include="Protos\reactive_lock.proto" GrpcServices="Both" />
+    <Protobuf Include="Protos\payment_replication.proto" GrpcServices="Both" />
   </ItemGroup>
 
 

@@ -1,11 +1,11 @@
-@backend_HostAddress = http://localhost:9999
+@backend_HostAddress = http://localhost:8080
 
 ###
 POST {{backend_HostAddress}}/payments
 Content-Type: application/json
 
 {
-    "correlationId": "123e4567-e89b-12d3-a456-42661417400b",
+    "correlationId": "19b08677-48fd-4ca8-ac41-c602c5a31fb8",
     "amount": 234.56
 }
 

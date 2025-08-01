@@ -8,20 +8,20 @@ using System.Text.Json;
 public class PaymentSummaryService
 {
     private IReactiveLockTrackerFactory LockFactory { get; }
-    private IDatabase RedisDb { get; }
     private PaymentBatchInserterService BatchInserter { get; }
     private ConsoleWriterService ConsoleWriterService { get; }
+    private PaymentReplicationService PaymentReplicationService { get; }
 
     public PaymentSummaryService(
         IReactiveLockTrackerFactory lockFactory,
         PaymentBatchInserterService batchInserter,
         ConsoleWriterService consoleWriterService,
-        IConnectionMultiplexer redis)
+        PaymentReplicationService paymentReplicationService)
     {
-        RedisDb = redis.GetDatabase();
         LockFactory = lockFactory;
         BatchInserter = batchInserter;
         ConsoleWriterService = consoleWriterService;
+        PaymentReplicationService = paymentReplicationService;
     }
 
     public async Task<IResult> GetPaymentsSummaryAsync(DateTimeOffset? from, DateTimeOffset? to)
@@ -40,23 +40,25 @@ public class PaymentSummaryService
                 await channelBlockingGate.WaitIfBlockedAsync().ConfigureAwait(false);
             }, timeout: TimeSpan.FromSeconds(1.3)).ConfigureAwait(false);
 
-            var redisValues = await RedisDb.ListRangeAsync(Constant.REDIS_PAYMENTS_BATCH_KEY).ConfigureAwait(false);
+            // Get all replicated payments snapshot from your gRPC replication manager
+            var allPayments = PaymentReplicationService.GetReplicatedPaymentsSnapshot();
 
-            var payments = redisValues
-                .Select(v => JsonSerializer.Deserialize(v!, JsonContext.Default.PaymentInsertParameters))
-                .Where(p => p != null)
-                .Where(p =>
-                    (!from.HasValue || p?.RequestedAt >= from) &&
-                    (!to.HasValue || p?.RequestedAt <= to))
+            // Filter by date range
+            var payments = allPayments
+                .Where(p => {
+                    var requestedAt = DateTimeOffset.Parse(p.RequestedAt); // assuming string ISO 8601 here
+                    return (!from.HasValue || requestedAt >= from) &&
+                        (!to.HasValue || requestedAt <= to);
+                })
                 .ToList();
 
             var grouped = payments
-                .GroupBy(p => p!.Processor)
+                .GroupBy(p => p.Processor)
                 .ToDictionary(g => g.Key,
                             g => new PaymentSummaryResult(
                                 Processor: g.Key,
                                 TotalRequests: g.Count(),
-                                TotalAmount: g.Sum(p => p!.Amount)));
+                                TotalAmount: g.Sum(p => (decimal)p.Amount)));
 
             var defaultResult = grouped.TryGetValue(Constant.DEFAULT_PROCESSOR_NAME, out var d)
                 ? d
@@ -78,6 +80,7 @@ public class PaymentSummaryService
             await paymentsLock.DecrementAsync().ConfigureAwait(false);
         }
     }
+
 
 
     public async Task FlushWhileGateBlockedAsync()

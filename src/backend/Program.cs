@@ -40,24 +40,6 @@ var warmupRetryPolicy = Policy
             Console.WriteLine($"Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
         });
 
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-{
-    var configuration = builder.Configuration.GetConnectionString("redis")!;
-    var options = ConfigurationOptions.Parse(configuration);
-
-    return warmupRetryPolicy.Execute(() =>
-    {
-        Console.WriteLine("[Redis] Attempting connection...");
-        var muxer = ConnectionMultiplexer.Connect(options);
-
-        if (!muxer.IsConnected)
-            throw new Exception("Redis connection failed (IsConnected = false)");
-
-        Console.WriteLine("[Redis] Connected successfully.");
-        return muxer;
-    });
-});
-
 builder.Services
     .AddOptions<DefaultOptions>()
     .Bind(builder.Configuration);
@@ -86,8 +68,8 @@ builder.Services.AddSingleton<PaymentService>();
 builder.Services.AddSingleton<ConsoleWriterService>();
 builder.Services.AddSingleton<PaymentSummaryService>();
 builder.Services.AddSingleton<PaymentBatchInserterService>();
-builder.Services.AddSingleton<RedisQueueWorker>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<RedisQueueWorker>());
+builder.Services.AddSingleton<InMemoryQueueWorker>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<InMemoryQueueWorker>());
 
 if (builder.Environment.IsProduction() || builder.Environment.IsDevelopment())
 {
@@ -113,10 +95,17 @@ builder.Services.AddDistributedGrpcReactiveLock(Constant.REACTIVELOCK_API_PAYMEN
 ]);
 builder.Services.AddGrpc();
 builder.Services.AddSingleton<ReactiveLockGrpcService>();
+builder.Services.AddSingleton<PaymentReplicationService>();
+builder.Services.AddSingleton<PaymentReplicationClientManager>(sp =>
+{
+    return new PaymentReplicationClientManager(local, remote);
+});
 
 var app = builder.Build();
 
 var opts = app.Services.GetRequiredService<IOptions<DefaultOptions>>().Value;
+var manager = app.Services.GetRequiredService<PaymentReplicationClientManager>();
+
 
 Console.WriteLine($"WORKER_SIZE: {opts.WORKER_SIZE}");
 Console.WriteLine($"BATCH_SIZE: {opts.BATCH_SIZE}");
@@ -145,6 +134,7 @@ apiGroup.MapPost("/purge-payments", async (
 });
 
 app.MapGrpcService<ReactiveLockGrpcService>();
+app.MapGrpcService<PaymentReplicationService>();
 _ = Task.Run(async () =>
 {
     await Task.Delay(10000);
