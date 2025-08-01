@@ -101,22 +101,4 @@ public class PaymentReplicationClientManager
         }
     }
 
-    // Call this to publish a batch or individual payment locally and remotely
-    public async Task PublishPaymentAsync(PaymentInsertRpcParameters payment)
-    {
-        // Publish to local server (can be optional if local server already receives)
-        using var localCall = _localClient.PublishPayments();
-        await localCall.RequestStream.WriteAsync(payment).ConfigureAwait(false);
-        await localCall.RequestStream.CompleteAsync().ConfigureAwait(false);
-        await localCall.ResponseAsync.ConfigureAwait(false);
-
-        // Publish to replicas
-        foreach (var client in _remoteClients)
-        {
-            using var call = client.PublishPayments();
-            await call.RequestStream.WriteAsync(payment).ConfigureAwait(false);
-            await call.RequestStream.CompleteAsync().ConfigureAwait(false);
-            await call.ResponseAsync.ConfigureAwait(false);
-        }
-    }
 }
