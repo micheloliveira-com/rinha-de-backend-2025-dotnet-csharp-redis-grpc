@@ -10,17 +10,20 @@ public class PaymentBatchInserterService
     private ConcurrentQueue<PaymentInsertRpcParameters> Buffer { get; } = new();
     private IReactiveLockTrackerController ReactiveLockTrackerController { get; }
     public DefaultOptions Options { get; }
+    public PaymentReplicationService PaymentReplicationService { get; }
 
     private readonly PaymentReplicationClientManager ReplicationManager;
 
     public PaymentBatchInserterService(
         IReactiveLockTrackerFactory reactiveLockTrackerFactory,
         IOptions<DefaultOptions> options,
-        PaymentReplicationClientManager replicationManager)
+        PaymentReplicationClientManager replicationManager,
+        PaymentReplicationService paymentReplicationService)
     {
         ReactiveLockTrackerController = reactiveLockTrackerFactory.GetTrackerController(Constant.REACTIVELOCK_REDIS_NAME);
         Options = options.Value;
         ReplicationManager = replicationManager;
+        PaymentReplicationService = paymentReplicationService;
     }
 
     public async Task<int> AddAsync(PaymentInsertRpcParameters payment)
@@ -51,7 +54,7 @@ public class PaymentBatchInserterService
             if (batch.Count == 0)
                 break;
 
-            await ReplicationManager.PublishPaymentsBatchAsync(batch);
+            await ReplicationManager.PublishPaymentsBatchAsync(batch, PaymentReplicationService);
 
             totalInserted += batch.Count;
 

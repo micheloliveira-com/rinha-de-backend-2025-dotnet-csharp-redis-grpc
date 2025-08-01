@@ -9,7 +9,6 @@ using Replication.Grpc;
 
 public class PaymentReplicationService : PaymentReplication.PaymentReplicationBase
 {
-    private readonly ConcurrentBag<IServerStreamWriter<PaymentInsertRpcParameters>> _subscribers = new();
     private readonly ConcurrentBag<PaymentInsertRpcParameters> _replicatedPayments = new();
 
     public override async Task<Google.Protobuf.WellKnownTypes.Empty> PublishPayments(
@@ -20,30 +19,14 @@ public class PaymentReplicationService : PaymentReplication.PaymentReplicationBa
         {
             //Console.WriteLine($"[RECEIVED] Payment {payment.CorrelationId} from {payment.SourceInstance}");
             HandleLocally(payment);
-            await BroadcastAsync(payment).ConfigureAwait(false);
         }
 
         return new Google.Protobuf.WellKnownTypes.Empty();
     }
 
-    private void HandleLocally(PaymentInsertRpcParameters payment)
+    public void HandleLocally(PaymentInsertRpcParameters payment)
     {
         _replicatedPayments.Add(payment);
-    }
-
-    private async Task BroadcastAsync(PaymentInsertRpcParameters payment)
-    {
-        foreach (var subscriber in _subscribers.ToArray())
-        {
-            try
-            {
-                await subscriber.WriteAsync(payment).ConfigureAwait(false);
-            }
-            catch
-            {
-                _subscribers.TryTake(out _);
-            }
-        }
     }
 
     public PaymentInsertRpcParameters[] GetReplicatedPaymentsSnapshot()
@@ -54,16 +37,10 @@ public class PaymentReplicationService : PaymentReplication.PaymentReplicationBa
 
 public class PaymentReplicationClientManager
 {
-    private readonly PaymentReplication.PaymentReplicationClient _localClient;
     private readonly List<PaymentReplication.PaymentReplicationClient> _remoteClients = new();
 
-    private readonly ConcurrentBag<PaymentInsertRpcParameters> _localReplicatedPayments = new();
-
-    public PaymentReplicationClientManager(string localGrpcUrl, params string[] remoteGrpcUrls)
+    public PaymentReplicationClientManager(params string[] remoteGrpcUrls)
     {
-        var localChannel = GrpcChannel.ForAddress(localGrpcUrl);
-        _localClient = new PaymentReplication.PaymentReplicationClient(localChannel);
-
         foreach (var url in remoteGrpcUrls)
         {
             var channel = GrpcChannel.ForAddress(url);
@@ -71,20 +48,12 @@ public class PaymentReplicationClientManager
         }
     }
 
-    public async Task PublishPaymentsBatchAsync(IEnumerable<PaymentInsertRpcParameters> payments)
+    public async Task PublishPaymentsBatchAsync(IEnumerable<PaymentInsertRpcParameters> payments, PaymentReplicationService paymentReplicationService)
     {
-        // Send batch to local client
-        using (var localCall = _localClient.PublishPayments())
+        foreach (var pay in payments)
         {
-            foreach (var payment in payments)
-            {
-                await localCall.RequestStream.WriteAsync(payment).ConfigureAwait(false);
-            }
-
-            await localCall.RequestStream.CompleteAsync().ConfigureAwait(false);
-            await localCall.ResponseAsync.ConfigureAwait(false);
+            paymentReplicationService.HandleLocally(pay);
         }
-
         // Send batch to each remote client
         foreach (var remoteClient in _remoteClients)
         {
