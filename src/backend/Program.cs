@@ -141,10 +141,13 @@ var apiGroup = app.MapGroup("/");
 
 app.Use(async (context, next) =>
 {
-    if (!grpcReady)
+    if (context.Connection.LocalPort == 8080)
     {
-        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-        return;
+        if (!grpcReady)
+        {
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return;
+        }
     }
 
     await next();
