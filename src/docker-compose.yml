@@ -69,7 +69,7 @@ services:
       redis-server
       --save ""
       --appendonly no
-      --maxmemory 30mb
+      --maxmemory 10mb
       --maxmemory-policy allkeys-lru
     networks:
       - backend
