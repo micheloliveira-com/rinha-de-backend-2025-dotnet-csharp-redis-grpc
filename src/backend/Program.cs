@@ -20,6 +20,7 @@ using System.Text.Json.Serialization;
 var grpcReady = false;
 
 var builder = WebApplication.CreateSlimBuilder(args);
+
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.ListenAnyIP(8081, listenOptions =>
@@ -42,6 +43,33 @@ var warmupRetryAsyncPolicy = Policy
             Console.WriteLine($"Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
         });
 
+var warmupRetryPolicy = Policy
+    .Handle<Exception>()
+    .WaitAndRetry(
+        retryCount: 60,
+        sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
+        onRetry: (exception, timeSpan, retryCount, context) =>
+        {
+            Console.WriteLine($"Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
+        });
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+{
+    var configuration = builder.Configuration.GetConnectionString("redis")!;
+    var options = ConfigurationOptions.Parse(configuration);
+
+    return warmupRetryPolicy.Execute(() =>
+    {
+        Console.WriteLine("[Redis] Attempting connection...");
+        var muxer = ConnectionMultiplexer.Connect(options);
+
+        if (!muxer.IsConnected)
+            throw new Exception("Redis connection failed (IsConnected = false)");
+
+        Console.WriteLine("[Redis] Connected successfully.");
+        return muxer;
+    });
+});
 builder.Services
     .AddOptions<DefaultOptions>()
     .Bind(builder.Configuration);
@@ -70,8 +98,8 @@ builder.Services.AddSingleton<PaymentService>();
 builder.Services.AddSingleton<ConsoleWriterService>();
 builder.Services.AddSingleton<PaymentSummaryService>();
 builder.Services.AddSingleton<PaymentBatchInserterService>();
-builder.Services.AddSingleton<InMemoryQueueWorker>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<InMemoryQueueWorker>());
+builder.Services.AddSingleton<RedisQueueWorker>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<RedisQueueWorker>());
 
 if (builder.Environment.IsProduction() || builder.Environment.IsDevelopment())
 {

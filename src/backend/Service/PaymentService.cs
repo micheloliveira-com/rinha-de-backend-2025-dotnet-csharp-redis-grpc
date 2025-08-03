@@ -10,7 +10,7 @@ public class PaymentService
 {
     private ConsoleWriterService ConsoleWriterService { get; }
     private PaymentBatchInserterService BatchInserter { get; }
-    private InMemoryQueueWorker InMemoryQueueWorker { get; }
+    private IDatabase Db { get; }
     private IReactiveLockTrackerState ReactiveLockTrackerState { get; }
     private HttpClient HttpDefault { get; }
     private PaymentReplicationService PaymentReplicationService { get; }
@@ -19,13 +19,13 @@ public class PaymentService
         IHttpClientFactory factory,
         PaymentBatchInserterService batchInserter,
         IReactiveLockTrackerFactory reactiveLockTrackerFactory,
-        InMemoryQueueWorker inMemoryQueueWorker,
+        IConnectionMultiplexer connectionMultiplexer,
         PaymentReplicationService paymentReplicationService
     )
     {
         ConsoleWriterService = consoleWriterService;
         BatchInserter = batchInserter;
-        InMemoryQueueWorker = inMemoryQueueWorker;
+        Db = connectionMultiplexer.GetDatabase();
         ReactiveLockTrackerState = reactiveLockTrackerFactory.GetTrackerState(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME);
         PaymentReplicationService = paymentReplicationService;
         HttpDefault = factory.CreateClient(Constant.DEFAULT_PROCESSOR_NAME);
@@ -37,9 +37,11 @@ public class PaymentService
         using var ms = new MemoryStream();
         await context.Request.Body.CopyToAsync(ms);
         var rawBody = ms.ToArray();
-        var rawString = System.Text.Encoding.UTF8.GetString(rawBody);
 
-        InMemoryQueueWorker.Enqueue(rawString);
+        _ = Task.Run(async () =>
+        {
+            await Db.ListRightPushAsync(Constant.REDIS_QUEUE_KEY, rawBody).ConfigureAwait(false);
+        }).ConfigureAwait(false);
 
         return Results.Accepted();
     }
@@ -109,8 +111,6 @@ public class PaymentService
             ConsoleWriterService.WriteLine($"Discarding message due to client error: {statusCode} {response.ReasonPhrase}");
             return;
         }
-        InMemoryQueueWorker.Enqueue(message);
-        //var redisDb = Redis.GetDatabase();
-        //await redisDb.ListRightPushAsync(Constant.REDIS_QUEUE_KEY, message).ConfigureAwait(false);
+        await Db.ListRightPushAsync(Constant.REDIS_QUEUE_KEY, message).ConfigureAwait(false);
     }   
 }
