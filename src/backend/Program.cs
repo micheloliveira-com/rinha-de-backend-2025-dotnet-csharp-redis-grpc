@@ -17,6 +17,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 [module: DapperAot]
 
+var grpcReady = false;
+
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -30,9 +32,9 @@ builder.WebHost.ConfigureKestrel(options =>
         listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1;
     });
 });
-var warmupRetryPolicy = Policy
+var warmupRetryAsyncPolicy = Policy
     .Handle<Exception>()
-    .WaitAndRetry(
+    .WaitAndRetryAsync(
         retryCount: 60,
         sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
         onRetry: (exception, timeSpan, retryCount, context) =>
@@ -81,7 +83,32 @@ var local = builder.Configuration.GetConnectionString("rpc_local_server");
 var remote = builder.Configuration.GetConnectionString("rpc_replica_server");
 
 if (string.IsNullOrWhiteSpace(local) || string.IsNullOrWhiteSpace(remote))
-    throw new InvalidOperationException("Missing RPC server addresses in configuration.");
+{
+    var hostname = Dns.GetHostName();
+
+    if (hostname == "backend-1")
+    {
+        local = "http://backend-1:8081";
+        remote = "http://backend-2:8081";
+    }
+    else if (hostname == "backend-2")
+    {
+        local = "http://backend-2:8081";
+        remote = "http://backend-1:8081";
+    }
+    else
+    {
+        //throw new InvalidOperationException($"Unknown hostname '{hostname}' — cannot determine RPC server addresses.");
+    }
+
+    // Inject fallback into configuration
+    builder.Configuration["ConnectionStrings:rpc_local_server"] = local;
+    builder.Configuration["ConnectionStrings:rpc_replica_server"] = remote;
+}
+
+if (string.IsNullOrWhiteSpace(local) || string.IsNullOrWhiteSpace(remote))
+    return;
+//    throw new InvalidOperationException("Missing RPC server addresses in configuration.");
 
 builder.Services.InitializeDistributedGrpcReactiveLock(Dns.GetHostName(), local, remote);
 
@@ -111,6 +138,17 @@ Console.WriteLine($"WORKER_SIZE: {opts.WORKER_SIZE}");
 Console.WriteLine($"BATCH_SIZE: {opts.BATCH_SIZE}");
 
 var apiGroup = app.MapGroup("/");
+
+app.Use(async (context, next) =>
+{
+    if (!grpcReady)
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        return;
+    }
+
+    await next();
+});
 apiGroup.MapGet("/", () => Results.Ok());
 
 apiGroup.MapPost("payments", async (HttpContext context,
@@ -137,9 +175,11 @@ app.MapGrpcService<ReactiveLockGrpcService>();
 app.MapGrpcService<PaymentReplicationService>();
 _ = Task.Run(async () =>
 {
-    await Task.Delay(10000);
-
-    await app.UseDistributedGrpcReactiveLockAsync();
+    await warmupRetryAsyncPolicy.ExecuteAsync(async () =>
+    {
+        await app.UseDistributedGrpcReactiveLockAsync();
+        grpcReady = true;
+    });
 });
 app.Run();
 

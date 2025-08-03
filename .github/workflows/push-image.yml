@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: rinha-de-backend-2025-dotnet-csharp-redis
+  IMAGE_NAME: rinha-de-backend-2025-dotnet-csharp-redis-r
   SOURCE_FOLDER: src
 
 jobs:
