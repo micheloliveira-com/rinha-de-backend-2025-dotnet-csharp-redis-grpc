@@ -1,4 +1,5 @@
 name: k6 Test
+#  thanks to lukas8219 - https://github.com/lukas8219/rinha-de-backend-2025/blob/main/.github/workflows/test.yaml
 
 on:
   workflow_dispatch:
