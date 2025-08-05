@@ -32,7 +32,7 @@ jobs:
         run: sleep 5
 
       - name: Build and start services
-        run: docker-compose up -d --build
+        run: cd src && docker-compose up -d --build
 
       - name: Wait for services to be healthy
         run: |
