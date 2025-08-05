@@ -88,10 +88,10 @@ public class PaymentService
         {
             return;
         }
-        /*if (PaymentReplicationService.IsAlreadyProcessed(request.CorrelationId.ToString()))
+        if (PaymentReplicationService.IsAlreadyProcessed(request.CorrelationId.ToString()))
         {
             return;
-        }*/
+        }
         var requestedAt = DateTimeOffset.UtcNow;
         await ReactiveLockTrackerState.WaitIfBlockedAsync().ConfigureAwait(false);
         var response = await HttpDefault.PostAsJsonAsync("/payments", new ProcessorPaymentRequest

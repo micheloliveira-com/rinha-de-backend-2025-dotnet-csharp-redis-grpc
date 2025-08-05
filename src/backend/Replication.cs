@@ -85,10 +85,10 @@ public class PaymentReplicationClientManager
     public async Task ReplicateQueueAsync(string rawPayload, PaymentReplicationService paymentReplicationService)
     {
         paymentReplicationService.HandleQueueLocally(rawPayload);
-        /*if (paymentReplicationService.GetQueue().Count < 15)
+        if (paymentReplicationService.GetQueue().Count < 15)
         {
             return;
-        }*/
+        }
         foreach (var client in _remoteClients)
         {
             using var call = client.PublishQueue();
