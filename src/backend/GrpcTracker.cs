@@ -127,9 +127,9 @@ public class ReactiveLockGrpcService : ReactiveLockGrpc.ReactiveLockGrpcBase
     {
         var group = _groups.GetOrAdd(request.LockKey, _ => new LockGroup());
         group.InstanceStates[request.InstanceId] = request.IsBusy;
-        //_ = BroadcastAsync(request.LockKey, group);
-        await BroadcastAsync(request.LockKey, group);
-        return new Empty();
+        _ = BroadcastAsync(request.LockKey, group);
+        //await BroadcastAsync(request.LockKey, group);
+        return await Task.FromResult(new Empty());
     }
 
     public override async Task SubscribeLockStatus(IAsyncStreamReader<LockStatusRequest> requestStream,
