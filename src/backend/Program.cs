@@ -23,6 +23,11 @@ var builder = WebApplication.CreateSlimBuilder(args);
 
 builder.WebHost.ConfigureKestrel(options =>
 {
+    /*options.Limits.Http2.MaxStreamsPerConnection = 1000;
+    options.Limits.MaxConcurrentConnections = 10000;
+    options.Limits.Http2.InitialConnectionWindowSize = 1048576 * 4; // 4 MB
+    options.Limits.Http2.InitialStreamWindowSize = 1048576 * 4; // 4 MB
+    */
     options.ListenAnyIP(8081, listenOptions =>
     {
         listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
@@ -53,23 +58,6 @@ var warmupRetryPolicy = Policy
             Console.WriteLine($"Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
         });
 
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-{
-    var configuration = builder.Configuration.GetConnectionString("redis")!;
-    var options = ConfigurationOptions.Parse(configuration);
-
-    return warmupRetryPolicy.Execute(() =>
-    {
-        Console.WriteLine("[Redis] Attempting connection...");
-        var muxer = ConnectionMultiplexer.Connect(options);
-
-        if (!muxer.IsConnected)
-            throw new Exception("Redis connection failed (IsConnected = false)");
-
-        Console.WriteLine("[Redis] Connected successfully.");
-        return muxer;
-    });
-});
 builder.Services
     .AddOptions<DefaultOptions>()
     .Bind(builder.Configuration);
@@ -98,8 +86,8 @@ builder.Services.AddSingleton<PaymentService>();
 builder.Services.AddSingleton<ConsoleWriterService>();
 builder.Services.AddSingleton<PaymentSummaryService>();
 builder.Services.AddSingleton<PaymentBatchInserterService>();
-builder.Services.AddSingleton<RedisQueueWorker>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<RedisQueueWorker>());
+builder.Services.AddSingleton<GrpcQueueWorker>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<GrpcQueueWorker>());
 
 if (builder.Environment.IsProduction() || builder.Environment.IsDevelopment())
 {
@@ -153,7 +141,7 @@ builder.Services.AddSingleton<ReactiveLockGrpcService>();
 builder.Services.AddSingleton<PaymentReplicationService>();
 builder.Services.AddSingleton<PaymentReplicationClientManager>(sp =>
 {
-    return new PaymentReplicationClientManager(remote);
+    return new PaymentReplicationClientManager(local, remote);
 });
 
 var app = builder.Build();

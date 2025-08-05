@@ -9,6 +9,10 @@ using Replication.Grpc;
 
 public class PaymentReplicationService : PaymentReplication.PaymentReplicationBase
 {
+    private readonly ConcurrentDictionary<string, bool> _processedCorrelationIds = new();
+
+    private readonly ConcurrentQueue<string> _queue = new();
+
     private readonly ConcurrentBag<PaymentInsertRpcParameters> _replicatedPayments = new();
 
     public override async Task<Google.Protobuf.WellKnownTypes.Empty> PublishPayments(
@@ -24,8 +28,14 @@ public class PaymentReplicationService : PaymentReplication.PaymentReplicationBa
         return new Google.Protobuf.WellKnownTypes.Empty();
     }
 
+    public void HandleQueueLocally(string payload)
+    {
+        _queue.Enqueue(payload);
+    }
+
     public void HandleLocally(PaymentInsertRpcParameters payment)
     {
+        _processedCorrelationIds.TryAdd(payment.CorrelationId, true);
         _replicatedPayments.Add(payment);
     }
 
@@ -33,18 +43,67 @@ public class PaymentReplicationService : PaymentReplication.PaymentReplicationBa
     {
         return _replicatedPayments.ToArray();
     }
+
+    public override async Task<Google.Protobuf.WellKnownTypes.Empty> PublishQueue(
+        IAsyncStreamReader<ReplicatedQueueMessage> requestStream,
+        ServerCallContext context)
+    {
+        await foreach (var msg in requestStream.ReadAllAsync(context.CancellationToken))
+        {
+            HandleQueueLocally(msg.RawPayload);
+        }
+
+        return new Google.Protobuf.WellKnownTypes.Empty();
+    }
+
+    public ConcurrentQueue<string> GetQueue() => _queue;
+
+    public bool IsAlreadyProcessed(string correlationId)
+    {
+        return _processedCorrelationIds.ContainsKey(correlationId);
+    }
+
 }
 
 public class PaymentReplicationClientManager
 {
     private readonly List<PaymentReplication.PaymentReplicationClient> _remoteClients = new();
 
-    public PaymentReplicationClientManager(params string[] remoteGrpcUrls)
+    public PaymentReplicationClientManager(string local, params string[] remoteGrpcUrls)
     {
         foreach (var url in remoteGrpcUrls)
         {
-            var channel = GrpcChannel.ForAddress(url);
+            if (local == url)
+            {
+                break;
+            }
+            var httpHandler = new SocketsHttpHandler
+            {
+                PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+                MaxConnectionsPerServer = int.MaxValue,
+                EnableMultipleHttp2Connections = true
+            };
+            var channel = GrpcChannel.ForAddress(url, new GrpcChannelOptions
+            {
+                HttpHandler = httpHandler
+            });
             _remoteClients.Add(new PaymentReplication.PaymentReplicationClient(channel));
+        }
+    }
+
+    public async Task ReplicateQueueAsync(string rawPayload, PaymentReplicationService paymentReplicationService)
+    {
+        paymentReplicationService.HandleQueueLocally(rawPayload);
+        /*if (paymentReplicationService.GetQueue().Count < 15)
+        {
+            return;
+        }*/
+        foreach (var client in _remoteClients)
+        {
+            using var call = client.PublishQueue();
+            await call.RequestStream.WriteAsync(new ReplicatedQueueMessage { RawPayload = rawPayload });
+            await call.RequestStream.CompleteAsync().ConfigureAwait(false);
+            await call.ResponseAsync.ConfigureAwait(false);
         }
     }
 

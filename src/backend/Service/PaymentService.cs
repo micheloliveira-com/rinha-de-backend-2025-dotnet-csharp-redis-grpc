@@ -1,5 +1,6 @@
 using System.Data;
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using System.Text.Json;
 using Dapper;
 using MichelOliveira.Com.ReactiveLock.Core;
@@ -10,7 +11,7 @@ public class PaymentService
 {
     private ConsoleWriterService ConsoleWriterService { get; }
     private PaymentBatchInserterService BatchInserter { get; }
-    private IDatabase Db { get; }
+    public PaymentReplicationClientManager PaymentReplicationClientManager { get; }
     private IReactiveLockTrackerState ReactiveLockTrackerState { get; }
     private HttpClient HttpDefault { get; }
     private PaymentReplicationService PaymentReplicationService { get; }
@@ -19,13 +20,14 @@ public class PaymentService
         IHttpClientFactory factory,
         PaymentBatchInserterService batchInserter,
         IReactiveLockTrackerFactory reactiveLockTrackerFactory,
-        IConnectionMultiplexer connectionMultiplexer,
+        PaymentReplicationClientManager paymentReplicationClientManager,
+
         PaymentReplicationService paymentReplicationService
     )
     {
         ConsoleWriterService = consoleWriterService;
         BatchInserter = batchInserter;
-        Db = connectionMultiplexer.GetDatabase();
+        PaymentReplicationClientManager = paymentReplicationClientManager;
         ReactiveLockTrackerState = reactiveLockTrackerFactory.GetTrackerState(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME);
         PaymentReplicationService = paymentReplicationService;
         HttpDefault = factory.CreateClient(Constant.DEFAULT_PROCESSOR_NAME);
@@ -37,10 +39,12 @@ public class PaymentService
         using var ms = new MemoryStream();
         await context.Request.Body.CopyToAsync(ms);
         var rawBody = ms.ToArray();
+        var rawPayload = Encoding.UTF8.GetString(rawBody);
+
 
         _ = Task.Run(async () =>
         {
-            await Db.ListRightPushAsync(Constant.REDIS_QUEUE_KEY, rawBody).ConfigureAwait(false);
+            await PaymentReplicationClientManager.ReplicateQueueAsync(rawPayload, PaymentReplicationService).ConfigureAwait(false);
         }).ConfigureAwait(false);
 
         return Results.Accepted();
@@ -84,6 +88,10 @@ public class PaymentService
         {
             return;
         }
+        if (PaymentReplicationService.IsAlreadyProcessed(request.CorrelationId.ToString()))
+        {
+            return;
+        }
         var requestedAt = DateTimeOffset.UtcNow;
         await ReactiveLockTrackerState.WaitIfBlockedAsync().ConfigureAwait(false);
         var response = await HttpDefault.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
@@ -111,6 +119,6 @@ public class PaymentService
             ConsoleWriterService.WriteLine($"Discarding message due to client error: {statusCode} {response.ReasonPhrase}");
             return;
         }
-        await Db.ListRightPushAsync(Constant.REDIS_QUEUE_KEY, message).ConfigureAwait(false);
+        await PaymentReplicationClientManager.ReplicateQueueAsync(message, PaymentReplicationService).ConfigureAwait(false);
     }   
 }

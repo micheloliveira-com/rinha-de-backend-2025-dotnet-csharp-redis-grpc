@@ -40,8 +40,20 @@ public static class ReactiveLockGrpcTrackerExtensions
 
         ReactiveLockConventions.RegisterFactory(services);
         StoredInstanceName = instanceName;
-        LocalClient = new ReactiveLockGrpcClient(GrpcChannel.ForAddress(localGrpc));
-        RemoteClients.AddRange(remotes.Select(url => new ReactiveLockGrpcClient(GrpcChannel.ForAddress(url))));
+                    var httpHandler = new SocketsHttpHandler
+            {
+                PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+                MaxConnectionsPerServer = int.MaxValue,
+                EnableMultipleHttp2Connections = true
+            };
+        LocalClient = new ReactiveLockGrpcClient(GrpcChannel.ForAddress(localGrpc, new GrpcChannelOptions
+            {
+                HttpHandler = httpHandler
+            }));
+        RemoteClients.AddRange(remotes.Select(url => new ReactiveLockGrpcClient(GrpcChannel.ForAddress(url, new GrpcChannelOptions
+            {
+                HttpHandler = httpHandler
+            }))));
     }
 
     public static IServiceCollection AddDistributedGrpcReactiveLock(
