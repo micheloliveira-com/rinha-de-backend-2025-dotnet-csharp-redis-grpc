@@ -116,7 +116,7 @@ public class PaymentService
 
         if (statusCode >= 400 && statusCode < 500)
         {
-            ConsoleWriterService.WriteLine($"Discarding message due to client error: {statusCode} {response.ReasonPhrase}");
+            Console.WriteLine($"Discarding message due to client error: {statusCode} {response.ReasonPhrase}");
             return;
         }
         await PaymentReplicationClientManager.ReplicateQueueAsync(message, PaymentReplicationService).ConfigureAwait(false);
