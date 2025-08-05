@@ -14,15 +14,9 @@ message PaymentInsertRpcParameters {
   string source_instance = 5;
 }
 
-message ReplicatedQueueMessage {
-  string rawPayload = 1;
-}
-
-
 service PaymentReplication {
   rpc PublishPayments(stream PaymentInsertRpcParameters) returns (google.protobuf.Empty);
   rpc SubscribeToPayments(google.protobuf.Empty) returns (stream PaymentInsertRpcParameters);
   rpc ClearPayments(google.protobuf.Empty) returns (google.protobuf.Empty);
-  rpc PublishQueue (stream ReplicatedQueueMessage) returns (google.protobuf.Empty);
 
 }
