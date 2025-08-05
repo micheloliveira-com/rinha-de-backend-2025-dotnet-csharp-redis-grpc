@@ -57,7 +57,9 @@ jobs:
           echo "\`\`\`json" >> comment.md
           cat partial-results.json >> comment.md
           echo "\n\`\`\`" >> comment.md
-
-      - name: Tear down services
-        if: always()
-        run: docker-compose down -v
+      - name: Upload comment.md as artifact
+        uses: actions/upload-artifact@v4
+        with:
+            name: comment-md
+            path: comment.md
+            retention-days: 1
