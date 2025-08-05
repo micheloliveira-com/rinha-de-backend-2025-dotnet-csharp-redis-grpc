@@ -35,13 +35,13 @@ public class GrpcQueueWorker : BackgroundService
     {
         var queue = _replicationService.GetQueue();
 
+        using var scope = _scopeFactory.CreateScope();
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 if (queue.TryDequeue(out var rawPayload))
                 {
-                    using var scope = _scopeFactory.CreateScope();
                     var paymentService = scope.ServiceProvider.GetRequiredService<PaymentService>();
 
                     await paymentService.ProcessPaymentAsync(rawPayload).ConfigureAwait(false);
