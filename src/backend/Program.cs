@@ -153,7 +153,7 @@ builder.Services.AddSingleton<ReactiveLockGrpcService>();
 builder.Services.AddSingleton<PaymentReplicationService>();
 builder.Services.AddSingleton<PaymentReplicationClientManager>(sp =>
 {
-    return new PaymentReplicationClientManager(remote);
+    return new PaymentReplicationClientManager(local, remote);
 });
 
 var app = builder.Build();
