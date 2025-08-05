@@ -49,7 +49,7 @@ public class GrpcQueueWorker : BackgroundService
                 else
                 {
                     // Queue empty, delay to avoid busy loop
-                    await Task.Delay(100, stoppingToken);
+                    await Task.Delay(10, stoppingToken);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
