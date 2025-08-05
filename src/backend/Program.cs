@@ -23,11 +23,6 @@ var builder = WebApplication.CreateSlimBuilder(args);
 
 builder.WebHost.ConfigureKestrel(options =>
 {
-    /*options.Limits.Http2.MaxStreamsPerConnection = 1000;
-    options.Limits.MaxConcurrentConnections = 10000;
-    options.Limits.Http2.InitialConnectionWindowSize = 1048576 * 4; // 4 MB
-    options.Limits.Http2.InitialStreamWindowSize = 1048576 * 4; // 4 MB
-    */
     options.ListenAnyIP(8081, listenOptions =>
     {
         listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;

@@ -77,16 +77,7 @@ public class PaymentReplicationClientManager
             {
                 break;
             }
-            var httpHandler = new SocketsHttpHandler
-            {
-                PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
-                MaxConnectionsPerServer = int.MaxValue,
-                EnableMultipleHttp2Connections = true
-            };
-            var channel = GrpcChannel.ForAddress(url, new GrpcChannelOptions
-            {
-                HttpHandler = httpHandler
-            });
+            var channel = GrpcChannel.ForAddress(url);
             _remoteClients.Add(new PaymentReplication.PaymentReplicationClient(channel));
         }
     }
