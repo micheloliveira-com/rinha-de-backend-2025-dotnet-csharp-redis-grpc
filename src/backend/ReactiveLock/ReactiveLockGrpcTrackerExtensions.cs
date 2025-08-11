@@ -46,7 +46,6 @@ public static class ReactiveLockGrpcTrackerExtensions
         RegisteredLocks.Enqueue(lockKey);
         return services;
     }
-
     public static async Task UseDistributedGrpcReactiveLockAsync(this IApplicationBuilder app)
     {
         var factory = app.ApplicationServices.GetRequiredService<IReactiveLockTrackerFactory>();
@@ -55,13 +54,15 @@ public static class ReactiveLockGrpcTrackerExtensions
         var instanceStoredInstanceName = StoredInstanceName!;
         var instanceRemoteClients = RemoteClients;
 
+        var readySignals = new List<Task>();
+
         foreach (var lockKey in RegisteredLocks)
         {
             var state = factory.GetTrackerState(lockKey);
             var controller = factory.GetTrackerController(lockKey);
             await controller.DecrementAsync().ConfigureAwait(false);
 
-            async Task SubscribeToUpdates(ReactiveLockGrpcClient client, string storedInstanceName)
+            async Task SubscribeToUpdates(ReactiveLockGrpcClient client, string storedInstanceName, TaskCompletionSource readySignal)
             {
                 var call = client.SubscribeLockStatus();
                 await call.RequestStream.WriteAsync(new LockStatusRequest
@@ -69,6 +70,8 @@ public static class ReactiveLockGrpcTrackerExtensions
                     LockKey = lockKey,
                     InstanceId = storedInstanceName!
                 }).ConfigureAwait(false);
+
+                readySignal.TrySetResult();
 
                 await foreach (var update in call.ResponseStream.ReadAllAsync().ConfigureAwait(false))
                 {
@@ -81,13 +84,23 @@ public static class ReactiveLockGrpcTrackerExtensions
                 }
             }
 
-            _ = Task.Run(() => SubscribeToUpdates(instanceLocalClient, instanceStoredInstanceName));
+            var tcsLocal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            readySignals.Add(tcsLocal.Task);
+            _ = Task.Run(() => SubscribeToUpdates(instanceLocalClient, instanceStoredInstanceName, tcsLocal));
+
             foreach (var remote in instanceRemoteClients)
-                _ = Task.Run(() => SubscribeToUpdates(remote, instanceStoredInstanceName));
+            {
+                var tcsRemote = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                readySignals.Add(tcsRemote.Task);
+                _ = Task.Run(() => SubscribeToUpdates(remote, instanceStoredInstanceName, tcsRemote));
+            }
         }
+
+        await Task.WhenAll(readySignals).ConfigureAwait(false);
 
         StoredInstanceName = null;
         LocalClient = null;
         RemoteClients = new();
     }
+
 }

@@ -22,14 +22,13 @@ public class ReactiveLockGrpcTrackerStore(ReactiveLockGrpcClient client, string 
 
         var busyEntries = update.InstancesStatus
             .Where(kv => kv.Value.IsBusy)
-            .Select(kv => (busyPart: "1", extraPart: kv.Value.LockData))
+            .Select(kv => kv.Value.LockData)
             .ToArray();
 
         if (busyEntries.Length == 0)
             return (true, null);
 
         var extraParts = busyEntries
-            .Select(x => x.extraPart)
             .Where(extra => !string.IsNullOrEmpty(extra))
             .ToArray();
 
