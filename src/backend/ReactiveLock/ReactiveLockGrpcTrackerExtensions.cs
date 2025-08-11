@@ -14,6 +14,7 @@ using Google.Protobuf.WellKnownTypes;
 
 public static class ReactiveLockGrpcTrackerExtensions
 {
+    private static bool? IsInitializing { get; set; }
     private static readonly ConcurrentQueue<string> RegisteredLocks = new();
     private static string? StoredInstanceName;
     private static ReactiveLockGrpcClient? LocalClient;
@@ -34,11 +35,25 @@ public static class ReactiveLockGrpcTrackerExtensions
         IEnumerable<Func<IServiceProvider, Task>>? onUnlockedHandlers = null)
     {
         if (LocalClient is null || string.IsNullOrEmpty(StoredInstanceName))
-            throw new InvalidOperationException("You must call InitializeDistributedGrpcReactiveLock first.");
+        {
+            throw new InvalidOperationException(
+                "InstanceName not initialized. Call InitializeDistributedGrpcReactiveLock before adding distributed Grpc reactive locks.");
+        }
 
         ReactiveLockConventions.RegisterState(services, lockKey, onLockedHandlers, onUnlockedHandlers);
         ReactiveLockConventions.RegisterController(services, lockKey, _ =>
         {
+            var isInitializing = IsInitializing.HasValue && IsInitializing.Value;
+            var isNotInitializing = !isInitializing;
+            var hasPendingLockRegistrations = !RegisteredLocks.IsEmpty;
+
+            if (isNotInitializing && hasPendingLockRegistrations)
+            {
+                throw new InvalidOperationException(
+                    @"Distributed Grpc reactive locks are not initialized.
+                    Please ensure you're calling 'await app.UseDistributedGrpcReactiveLockAsync();'
+                    on your IApplicationBuilder instance after 'var app = builder.Build();'.");
+            }
             var store = new ReactiveLockGrpcTrackerStore(LocalClient, lockKey, StoredInstanceName);
             return new ReactiveLockTrackerController(store, StoredInstanceName);
         });
@@ -48,6 +63,7 @@ public static class ReactiveLockGrpcTrackerExtensions
     }
     public static async Task UseDistributedGrpcReactiveLockAsync(this IApplicationBuilder app)
     {
+        IsInitializing = true;
         var factory = app.ApplicationServices.GetRequiredService<IReactiveLockTrackerFactory>();
 
         var instanceLocalClient = LocalClient!;
@@ -98,6 +114,7 @@ public static class ReactiveLockGrpcTrackerExtensions
 
         await Task.WhenAll(readySignals).ConfigureAwait(false);
 
+        IsInitializing = null;
         StoredInstanceName = null;
         LocalClient = null;
         RemoteClients = new();
