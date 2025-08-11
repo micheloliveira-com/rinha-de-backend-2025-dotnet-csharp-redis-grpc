@@ -1,7 +1,7 @@
 using Dapper;
 using MichelOliveira.Com.ReactiveLock.Core;
 using MichelOliveira.Com.ReactiveLock.DependencyInjection;
-using MichelOliveira.Com.ReactiveLock.Distributed.Redis;
+using MichelOliveira.Com.ReactiveLock.Distributed.Grpc;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;

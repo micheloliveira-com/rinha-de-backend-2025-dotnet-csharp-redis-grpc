@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Net.Client;
-using ReactiveLock.Grpc;
 using Replication.Grpc;
 
 public class PaymentReplicationClientManager

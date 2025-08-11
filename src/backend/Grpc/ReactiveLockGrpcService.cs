@@ -5,12 +5,11 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using MichelOliveira.Com.ReactiveLock.Core;
 using MichelOliveira.Com.ReactiveLock.DependencyInjection;
-using ReactiveLock.Grpc;
-using static ReactiveLock.Grpc.ReactiveLockGrpc;
 using System.Linq;
 using System.Threading.Tasks;
 using System;
 using Google.Protobuf.WellKnownTypes;
+using ReactiveLock.Distributed.Grpc;
 
 
 public class ReactiveLockGrpcService : ReactiveLockGrpc.ReactiveLockGrpcBase
