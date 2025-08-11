@@ -117,32 +117,7 @@ var local = builder.Configuration.GetConnectionString("rpc_local_server");
 var remote = builder.Configuration.GetConnectionString("rpc_replica_server");
 
 if (string.IsNullOrWhiteSpace(local) || string.IsNullOrWhiteSpace(remote))
-{
-    var hostname = Dns.GetHostName();
-
-    if (hostname == "backend-1")
-    {
-        local = "http://backend-1:8081";
-        remote = "http://backend-2:8081";
-    }
-    else if (hostname == "backend-2")
-    {
-        local = "http://backend-2:8081";
-        remote = "http://backend-1:8081";
-    }
-    else
-    {
-        //throw new InvalidOperationException($"Unknown hostname '{hostname}' — cannot determine RPC server addresses.");
-    }
-
-    // Inject fallback into configuration
-    builder.Configuration["ConnectionStrings:rpc_local_server"] = local;
-    builder.Configuration["ConnectionStrings:rpc_replica_server"] = remote;
-}
-
-if (string.IsNullOrWhiteSpace(local) || string.IsNullOrWhiteSpace(remote))
-    return;
-//    throw new InvalidOperationException("Missing RPC server addresses in configuration.");
+    throw new InvalidOperationException("Missing RPC server addresses in configuration.");
 
 builder.Services.InitializeDistributedGrpcReactiveLock(Dns.GetHostName(), local, remote);
 
