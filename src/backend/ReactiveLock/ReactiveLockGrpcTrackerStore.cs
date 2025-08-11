@@ -17,7 +17,6 @@ public class ReactiveLockGrpcTrackerStore(ReactiveLockGrpcClient client, string 
 {
     public async Task SetStatusAsync(string _, bool isBusy)
     {
-        //Console.WriteLine($"[TrackerStore] SetStatusAsync LockKey={lockKey}, Instance={instanceName}, IsBusy={isBusy}");
         await client.SetStatusAsync(new LockStatusRequest
         {
             LockKey = lockKey,
