@@ -40,7 +40,10 @@ var warmupRetryAsyncPolicy = Policy
         sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
         onRetry: (exception, timeSpan, retryCount, context) =>
         {
-            Console.WriteLine($"Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
+            Console.WriteLine(
+                $"Retry {retryCount}: {exception.GetType().Name} - {exception.Message}\n" +
+                $"StackTrace:\n{exception.StackTrace}\n" +
+                new string('-', 40));
         });
 
 var warmupRetryPolicy = Policy
@@ -50,7 +53,10 @@ var warmupRetryPolicy = Policy
         sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
         onRetry: (exception, timeSpan, retryCount, context) =>
         {
-            Console.WriteLine($"Retry {retryCount}: {exception.GetType().Name} - {exception.Message}");
+            Console.WriteLine(
+                $"Retry {retryCount}: {exception.GetType().Name} - {exception.Message}\n" +
+                $"StackTrace:\n{exception.StackTrace}\n" +
+                new string('-', 40));
         });
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>

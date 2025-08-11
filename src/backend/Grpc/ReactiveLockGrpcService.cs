@@ -17,7 +17,7 @@ public class ReactiveLockGrpcService : ReactiveLockGrpc.ReactiveLockGrpcBase
 {
     private class LockGroup
     {
-        public ConcurrentDictionary<string, bool> InstanceStates { get; } = new();
+        public ConcurrentDictionary<string, InstanceLockStatus> InstanceStates { get; } = new();
         public ConcurrentBag<IServerStreamWriter<LockStatusNotification>> Subscribers { get; } = new();
     }
 
@@ -26,8 +26,12 @@ public class ReactiveLockGrpcService : ReactiveLockGrpc.ReactiveLockGrpcBase
     public override async Task<Empty> SetStatus(LockStatusRequest request, ServerCallContext context)
     {
         var group = _groups.GetOrAdd(request.LockKey, _ => new LockGroup());
-        group.InstanceStates[request.InstanceId] = request.IsBusy;
-        //_ = BroadcastAsync(request.LockKey, group);
+        group.InstanceStates[request.InstanceId] =
+                new InstanceLockStatus()
+                {
+                    IsBusy = request.IsBusy,
+                    LockData = request.LockData
+                };
         await BroadcastAsync(request.LockKey, group);
         return new Empty();
     }
@@ -41,14 +45,13 @@ public class ReactiveLockGrpcService : ReactiveLockGrpc.ReactiveLockGrpcBase
             var group = _groups.GetOrAdd(req.LockKey, _ => new LockGroup());
             group.Subscribers.Add(responseStream);
 
-            // Send initial state
             await responseStream.WriteAsync(new LockStatusNotification
             {
                 LockKey = req.LockKey,
                 InstancesStatus = { group.InstanceStates }
             }).ConfigureAwait(false);
 
-            break; // Process only the first message
+            break;
         }
 
         try
