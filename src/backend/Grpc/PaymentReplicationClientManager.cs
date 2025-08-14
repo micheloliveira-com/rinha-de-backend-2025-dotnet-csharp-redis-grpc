@@ -1,14 +1,9 @@
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Grpc.Core;
 using Grpc.Net.Client;
 using Replication.Grpc;
 
 public class PaymentReplicationClientManager
 {
-    private readonly List<PaymentReplication.PaymentReplicationClient> _remoteClients = new();
+    private List<PaymentReplication.PaymentReplicationClient> RemoteClients { get; } = [];
 
     public PaymentReplicationClientManager(string local, params string[] remoteGrpcUrls)
     {
@@ -19,7 +14,7 @@ public class PaymentReplicationClientManager
                 break;
             }
             var channel = GrpcChannel.ForAddress(url);
-            _remoteClients.Add(new PaymentReplication.PaymentReplicationClient(channel));
+            RemoteClients.Add(new PaymentReplication.PaymentReplicationClient(channel));
         }
     }
 
@@ -29,8 +24,7 @@ public class PaymentReplicationClientManager
         {
             paymentReplicationService.HandleLocally(pay);
         }
-        // Send batch to each remote client
-        foreach (var remoteClient in _remoteClients)
+        foreach (var remoteClient in RemoteClients)
         {
             using (var remoteCall = remoteClient.PublishPayments())
             {

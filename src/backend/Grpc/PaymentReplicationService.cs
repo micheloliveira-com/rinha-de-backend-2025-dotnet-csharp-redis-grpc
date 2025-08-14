@@ -1,14 +1,10 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using Grpc.Core;
-using Grpc.Net.Client;
 using Replication.Grpc;
 
 public class PaymentReplicationService : PaymentReplication.PaymentReplicationBase
 {
-    private readonly ConcurrentBag<PaymentInsertRpcParameters> _replicatedPayments = new();
+    private ConcurrentBag<PaymentInsertRpcParameters> ReplicatedPayments { get; } = [];
 
     public override async Task<Google.Protobuf.WellKnownTypes.Empty> PublishPayments(
         IAsyncStreamReader<PaymentInsertRpcParameters> requestStream,
@@ -16,7 +12,6 @@ public class PaymentReplicationService : PaymentReplication.PaymentReplicationBa
     {
         await foreach (var payment in requestStream.ReadAllAsync(context.CancellationToken).ConfigureAwait(false))
         {
-            //Console.WriteLine($"[RECEIVED] Payment {payment.CorrelationId} from {payment.SourceInstance}");
             HandleLocally(payment);
         }
 
@@ -25,11 +20,11 @@ public class PaymentReplicationService : PaymentReplication.PaymentReplicationBa
 
     public void HandleLocally(PaymentInsertRpcParameters payment)
     {
-        _replicatedPayments.Add(payment);
+        ReplicatedPayments.Add(payment);
     }
 
     public PaymentInsertRpcParameters[] GetReplicatedPaymentsSnapshot()
     {
-        return _replicatedPayments.ToArray();
+        return ReplicatedPayments.ToArray();
     }
 }
