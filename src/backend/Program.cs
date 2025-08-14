@@ -2,6 +2,7 @@ using Dapper;
 using MichelOliveira.Com.ReactiveLock.Core;
 using MichelOliveira.Com.ReactiveLock.DependencyInjection;
 using MichelOliveira.Com.ReactiveLock.Distributed.Grpc;
+using MichelOliveira.Com.ReactiveLock.Distributed.Redis;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -119,18 +120,19 @@ var remote = builder.Configuration.GetConnectionString("rpc_replica_server");
 if (string.IsNullOrWhiteSpace(local) || string.IsNullOrWhiteSpace(remote))
     throw new InvalidOperationException("Missing RPC server addresses in configuration.");
 
-builder.Services.InitializeDistributedGrpcReactiveLock(Dns.GetHostName(), local, remote);
+//builder.Services.InitializeDistributedGrpcReactiveLock(Dns.GetHostName(), local, remote);
+builder.Services.InitializeDistributedRedisReactiveLock(Dns.GetHostName());
 
-builder.Services.AddDistributedGrpcReactiveLock(Constant.REACTIVELOCK_HTTP_NAME);
-builder.Services.AddDistributedGrpcReactiveLock(Constant.REACTIVELOCK_REDIS_NAME);
-builder.Services.AddDistributedGrpcReactiveLock(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME, [
+builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_HTTP_NAME);
+builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_REDIS_NAME);
+builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME, [
     async(sp) => {
         var summary = sp.GetRequiredService<PaymentSummaryService>();
         await summary.FlushWhileGateBlockedAsync();
     }
 ]);
 builder.Services.AddGrpc();
-builder.Services.AddSingleton<ReactiveLockGrpcService>();
+//builder.Services.AddSingleton<ReactiveLockGrpcService>();
 builder.Services.AddSingleton<PaymentReplicationService>();
 builder.Services.AddSingleton<PaymentReplicationClientManager>(sp =>
 {
@@ -138,7 +140,7 @@ builder.Services.AddSingleton<PaymentReplicationClientManager>(sp =>
 });
 
 var app = builder.Build();
-
+await app.UseDistributedRedisReactiveLockAsync();
 var opts = app.Services.GetRequiredService<IOptions<DefaultOptions>>().Value;
 var manager = app.Services.GetRequiredService<PaymentReplicationClientManager>();
 
@@ -148,7 +150,7 @@ Console.WriteLine($"BATCH_SIZE: {opts.BATCH_SIZE}");
 
 var apiGroup = app.MapGroup("/");
 
-app.Use(async (context, next) =>
+/*app.Use(async (context, next) =>
 {
     if (context.Connection.LocalPort == 8080)
     {
@@ -160,7 +162,7 @@ app.Use(async (context, next) =>
     }
 
     await next();
-});
+});*/
 apiGroup.MapGet("/", () => Results.Ok());
 
 apiGroup.MapPost("payments", async (HttpContext context,
@@ -183,15 +185,15 @@ apiGroup.MapPost("/purge-payments", async (
     return await paymentService.PurgePaymentsAsync();
 });
 
-app.MapGrpcService<ReactiveLockGrpcService>();
+//app.MapGrpcService<ReactiveLockGrpcService>();
 app.MapGrpcService<PaymentReplicationService>();
-_ = Task.Run(async () =>
+/*_ = Task.Run(async () =>
 {
     await warmupRetryAsyncPolicy.ExecuteAsync(async () =>
     {
         await app.UseDistributedGrpcReactiveLockAsync();
         grpcReady = true;
     });
-});
+});*/
 app.Run();
 
