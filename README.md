@@ -97,8 +97,8 @@ graph TD
 
 ## Especificações arquiteturais
 
-- Toda a persistência e enfileiramento são realizados em memória e sincronizados via Grpc. Não há dependência de banco de dados relacional.
-- O lock distribuído via [ReactiveLock](https://www.nuget.org/packages/ReactiveLock.Distributed.Grpc/) garante consistência entre múltiplas instâncias e sincronia no fluxo entre API e leitura do sumário.
+- Toda a persistência é realizada em memória e sincronizada via Grpc. Não há dependência de banco de dados relacional.
+- O lock distribuído via [ReactiveLock](https://www.nuget.org/packages/ReactiveLock.Distributed.Grpc/) garante consistência entre múltiplas instâncias e sincronia no fluxo entre API e leitura do sumário via Grpc.
 - O endpoint de sumário (`GET /payments-summary`) sincroniza o estado dos dados em memória via Grpc entre as instâncias, assegurando leitura consistente sem uso de banco SQL.
 - Totalmente compatível com build AOT, sem uso de reflection dinâmica, Linq Expressions ou outros recursos não suportados.
 
