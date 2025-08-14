@@ -37,10 +37,11 @@ http://micheloliveira.com/blog/desafio-performance-rinha-backend-2025-insights-c
 ## Stack
 
 - **.NET 9 (AOT)** - Gerando um executável nativo
-- **[ReactiveLock](https://www.nuget.org/packages/ReactiveLock.Distributed.Redis/)** - Lock distribuído e reativo via Redis para garantir consistência entre instâncias
-- **Redis** - Armazenamento principal e enfileiramento de mensagens
+- **[ReactiveLock](https://www.nuget.org/packages/ReactiveLock.Distributed.Grpc/)** - Lock distribuído e reativo via Grpc para garantir consistência entre instâncias
+- **Redis** - Enfileiramento atômico de mensagens
+- **Grpc** - Sincronização full duplex dos pagamentos entre as instâncias
 - **Dapper + Dapper.AOT** - ORM leve, ainda presente, mas utilizado apenas se necessário para lógica interna
-- **Polly** - Política de retry resiliente para conexões Redis
+- **Polly** - Política de retry resiliente para conexões Redis e Grpc
 - **Nginx** - Proxy reverso para balanceamento de carga entre as instâncias
 - **Docker Compose** - 1.5 CPU e 350MB de RAM no total, conforme as regras da [Rinha de Backend 2025](https://github.com/zanfranceschi/rinha-de-backend-2025)
 
@@ -54,7 +55,7 @@ graph TD
     reactiveLock["<b>Lock Reativo Distribuído</b><br/>(lib <b>ReactiveLock</b> para sincronia entre processos<br/>HTTP e API de Sumário)"]
   end
 
-  subgraph storageGroup["<b>ARMAZENAMENTO/MENSAGERIA</b>"]
+  subgraph storageGroup["<b>FILA ATÔMICA</b>"]
     redis["<b>Redis</b><br />(redis:8-alpine)"]
   end
 
@@ -68,6 +69,9 @@ graph TD
 
   reactiveLock --> storageGroup
 
+  %% Comunicação gRPC entre APIs
+  backend1 <--> |"gRPC (lock/replicação)"| backend2
+
   classDef invisible fill:none,stroke:none;
 
   %% Estilos de cor
@@ -80,22 +84,22 @@ graph TD
 
   style storageGroup fill:#a8d5a2,stroke:#333,stroke-width:2px,color:#000
   style redis fill:#c6e0b4,stroke:#333,stroke-width:1px,color:#000
+
 ```
 
 ## Endpoints
 
 - `POST /payments` - Enfileira um pagamento no Redis para processamento assíncrono
-- `GET /payments-summary` - Retorna um resumo agregado diretamente dos dados do Redis
-- `POST /purge-payments` - Remove os registros de pagamento da fila Redis
+- `GET /payments-summary` - Retorna um resumo agregado diretamente dos dados da memória sincronizados via Grpc
+- `POST /purge-payments` - Remove os registros de pagamento da fila da memória
 
 ---
 
 ## Especificações arquiteturais
 
-- Toda a persistência e enfileiramento são realizados em Redis. Não há dependência de banco de dados relacional.
-- O lock distribuído via [ReactiveLock](https://www.nuget.org/packages/ReactiveLock.Distributed.Redis/) garante consistência entre múltiplas instâncias e sincronia no fluxo entre API e leitura do sumário.
-- O endpoint de sumário (`GET /payments-summary`) sincroniza o estado dos dados em Redis entre as instâncias, assegurando leitura consistente sem uso de banco SQL.
-- A arquitetura é ideal para ambientes de alta concorrência, mantendo o estado de forma simplificada e performática com Redis como único backend.
+- Toda a persistência e enfileiramento são realizados em memória e sincronizados via Grpc. Não há dependência de banco de dados relacional.
+- O lock distribuído via [ReactiveLock](https://www.nuget.org/packages/ReactiveLock.Distributed.Grpc/) garante consistência entre múltiplas instâncias e sincronia no fluxo entre API e leitura do sumário.
+- O endpoint de sumário (`GET /payments-summary`) sincroniza o estado dos dados em memória via Grpc entre as instâncias, assegurando leitura consistente sem uso de banco SQL.
 - Totalmente compatível com build AOT, sem uso de reflection dinâmica, Linq Expressions ou outros recursos não suportados.
 
 ## Como rodar
