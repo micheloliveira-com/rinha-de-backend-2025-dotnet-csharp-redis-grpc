@@ -21,7 +21,6 @@
     <PackageReference Include="ReactiveLock.Core" Version="0.0.22-beta.5" />
     <PackageReference Include="ReactiveLock.DependencyInjection" Version="0.0.22-beta.5" />
     <PackageReference Include="ReactiveLock.Distributed.Grpc" Version="0.0.22-beta.5" />
-    <PackageReference Include="ReactiveLock.Distributed.Redis" Version="0.0.22-beta.5" />
   </ItemGroup>
 
   <ItemGroup>
