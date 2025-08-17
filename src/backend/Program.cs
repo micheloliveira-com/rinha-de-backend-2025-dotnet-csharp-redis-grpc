@@ -1,7 +1,6 @@
-using Dapper;
 using MichelOliveira.Com.ReactiveLock.Core;
 using MichelOliveira.Com.ReactiveLock.DependencyInjection;
-using MichelOliveira.Com.ReactiveLock.Distributed.Grpc;
+using MichelOliveira.Com.ReactiveLock.Distributed.Redis;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -15,9 +14,6 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-[module: DapperAot]
-
-var grpcReady = false;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
@@ -36,8 +32,8 @@ builder.WebHost.ConfigureKestrel(options =>
 var warmupRetryAsyncPolicy = Policy
     .Handle<Exception>()
     .WaitAndRetryAsync(
-        retryCount: 60,
-        sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
+        retryCount: 60 * 10,
+        sleepDurationProvider: _ => TimeSpan.FromSeconds(0.1),
         onRetry: (exception, timeSpan, retryCount, context) =>
         {
             Console.WriteLine(
@@ -49,8 +45,8 @@ var warmupRetryAsyncPolicy = Policy
 var warmupRetryPolicy = Policy
     .Handle<Exception>()
     .WaitAndRetry(
-        retryCount: 60,
-        sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
+        retryCount: 60 * 10,
+        sleepDurationProvider: _ => TimeSpan.FromSeconds(0.1),
         onRetry: (exception, timeSpan, retryCount, context) =>
         {
             Console.WriteLine(
@@ -99,12 +95,27 @@ builder.Services.AddHttpClient(Constant.DEFAULT_PROCESSOR_NAME, o =>
     })
     .AddHttpMessageHandler<CountingHandler>();
 
+builder.Services.AddHttpClient(Constant.FALLBACK_PROCESSOR_NAME, o =>
+    o.BaseAddress = new Uri(builder.Configuration.GetConnectionString(Constant.FALLBACK_PROCESSOR_NAME)!))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        MaxConnectionsPerServer = int.MaxValue,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+        EnableMultipleHttp2Connections = true,
+        ConnectTimeout = TimeSpan.FromSeconds(5),
+        AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
+    })
+    .AddHttpMessageHandler<CountingHandler>();
+
 builder.Services.AddTransient<CountingHandler>();
 builder.Services.AddSingleton<PaymentService>();
+builder.Services.AddSingleton<RunningPaymentsSummaryData>();
 builder.Services.AddSingleton<ConsoleWriterService>();
 builder.Services.AddSingleton<PaymentSummaryService>();
 builder.Services.AddSingleton<PaymentBatchInserterService>();
 builder.Services.AddSingleton<RedisQueueWorker>();
+builder.Services.AddSingleton<PaymentProcessorService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<RedisQueueWorker>());
 
 if (builder.Environment.IsProduction() || builder.Environment.IsDevelopment())
@@ -119,18 +130,25 @@ var remote = builder.Configuration.GetConnectionString("rpc_replica_server");
 if (string.IsNullOrWhiteSpace(local) || string.IsNullOrWhiteSpace(remote))
     throw new InvalidOperationException("Missing RPC server addresses in configuration.");
 
-builder.Services.InitializeDistributedGrpcReactiveLock(Dns.GetHostName(), local, remote);
+builder.Services.InitializeDistributedRedisReactiveLock(Dns.GetHostName());
 
-builder.Services.AddDistributedGrpcReactiveLock(Constant.REACTIVELOCK_HTTP_NAME);
-builder.Services.AddDistributedGrpcReactiveLock(Constant.REACTIVELOCK_REDIS_NAME);
-builder.Services.AddDistributedGrpcReactiveLock(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME, [
+var opts = builder.Configuration
+    .Get<DefaultOptions>()!;
+
+Console.WriteLine($"WORKER_SIZE: {opts.WORKER_SIZE}");
+Console.WriteLine($"BATCH_SIZE: {opts.BATCH_SIZE}");
+
+builder.Services.AddDistributedRedisReactiveLock(Constant.DEFAULT_PROCESSOR_ERROR_THRESHOLD_NAME,
+                                                    busyThreshold: opts.DEFAULT_PROCESSOR_CIRCUIT_ERROR_THRESHOLD_SECONDS);
+builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_HTTP_NAME);
+builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_REDIS_NAME);
+builder.Services.AddDistributedRedisReactiveLock(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME, [
     async(sp) => {
         var summary = sp.GetRequiredService<PaymentSummaryService>();
         await summary.FlushWhileGateBlockedAsync();
     }
 ]);
 builder.Services.AddGrpc();
-builder.Services.AddSingleton<ReactiveLockGrpcService>();
 builder.Services.AddSingleton<PaymentReplicationService>();
 builder.Services.AddSingleton<PaymentReplicationClientManager>(sp =>
 {
@@ -138,29 +156,13 @@ builder.Services.AddSingleton<PaymentReplicationClientManager>(sp =>
 });
 
 var app = builder.Build();
+await app.UseDistributedRedisReactiveLockAsync();
 
-var opts = app.Services.GetRequiredService<IOptions<DefaultOptions>>().Value;
 var manager = app.Services.GetRequiredService<PaymentReplicationClientManager>();
 
 
-Console.WriteLine($"WORKER_SIZE: {opts.WORKER_SIZE}");
-Console.WriteLine($"BATCH_SIZE: {opts.BATCH_SIZE}");
-
 var apiGroup = app.MapGroup("/");
 
-app.Use(async (context, next) =>
-{
-    if (context.Connection.LocalPort == 8080)
-    {
-        if (!grpcReady)
-        {
-            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            return;
-        }
-    }
-
-    await next();
-});
 apiGroup.MapGet("/", () => Results.Ok());
 
 apiGroup.MapPost("payments", async (HttpContext context,
@@ -183,15 +185,6 @@ apiGroup.MapPost("/purge-payments", async (
     return await paymentService.PurgePaymentsAsync();
 });
 
-app.MapGrpcService<ReactiveLockGrpcService>();
 app.MapGrpcService<PaymentReplicationService>();
-_ = Task.Run(async () =>
-{
-    await warmupRetryAsyncPolicy.ExecuteAsync(async () =>
-    {
-        await app.UseDistributedGrpcReactiveLockAsync();
-        grpcReady = true;
-    });
-});
 app.Run();
 

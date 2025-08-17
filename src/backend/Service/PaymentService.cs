@@ -1,7 +1,7 @@
 using System.Data;
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using System.Text.Json;
-using Dapper;
 using MichelOliveira.Com.ReactiveLock.Core;
 using MichelOliveira.Com.ReactiveLock.DependencyInjection;
 using StackExchange.Redis;
@@ -12,23 +12,23 @@ public class PaymentService
     private PaymentBatchInserterService BatchInserter { get; }
     private IDatabase Db { get; }
     private IReactiveLockTrackerState ReactiveLockTrackerState { get; }
-    private HttpClient HttpDefault { get; }
-    private PaymentReplicationService PaymentReplicationService { get; }
+    private PaymentProcessorService PaymentProcessorService { get; }
+
     public PaymentService(
         ConsoleWriterService consoleWriterService,
         IHttpClientFactory factory,
         PaymentBatchInserterService batchInserter,
         IReactiveLockTrackerFactory reactiveLockTrackerFactory,
         IConnectionMultiplexer connectionMultiplexer,
-        PaymentReplicationService paymentReplicationService
+        PaymentReplicationService paymentReplicationService,
+        PaymentProcessorService paymentProcessorService
     )
     {
         ConsoleWriterService = consoleWriterService;
         BatchInserter = batchInserter;
         Db = connectionMultiplexer.GetDatabase();
         ReactiveLockTrackerState = reactiveLockTrackerFactory.GetTrackerState(Constant.REACTIVELOCK_API_PAYMENTS_SUMMARY_NAME);
-        PaymentReplicationService = paymentReplicationService;
-        HttpDefault = factory.CreateClient(Constant.DEFAULT_PROCESSOR_NAME);
+        PaymentProcessorService = paymentProcessorService;
     }
 
 
@@ -86,18 +86,15 @@ public class PaymentService
         }
         var requestedAt = DateTimeOffset.UtcNow;
         await ReactiveLockTrackerState.WaitIfBlockedAsync().ConfigureAwait(false);
-        var response = await HttpDefault.PostAsJsonAsync("/payments", new ProcessorPaymentRequest
-        (
-            request.Amount,
-            requestedAt,
-            request.CorrelationId
-        ), JsonContext.Default.ProcessorPaymentRequest).ConfigureAwait(false);
+
+        (HttpResponseMessage response, string processor) = await PaymentProcessorService.ProcessPaymentAsync(request, requestedAt);
+
         if (response.IsSuccessStatusCode)
         {
             var parameters = new Replication.Grpc.PaymentInsertRpcParameters()
             {
                 CorrelationId = request.CorrelationId.ToString(),
-                Processor = Constant.DEFAULT_PROCESSOR_NAME,
+                Processor = processor,
                 Amount = (double)request.Amount,
                 RequestedAt = requestedAt.ToString("o")
             };
